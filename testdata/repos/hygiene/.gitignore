@@ -1,0 +1,7 @@
+# Environment files
+.env
+*.env
+
+# Private keys
+*.key
+id_rsa

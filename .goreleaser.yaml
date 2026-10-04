@@ -1,0 +1,44 @@
+version: 2
+
+project_name: hammerhead
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hammerhead
+    main: ./cmd/hammerhead
+    binary: hammerhead
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/ammaarrehman/hammerhead/internal/cli.Version={{ .Version }}
+      - -X github.com/ammaarrehman/hammerhead/internal/cli.Commit={{ .Commit }}
+
+archives:
+  - id: hammerhead
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+    files:
+      - LICENSE
+      - README.md
+      - SECURITY.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"

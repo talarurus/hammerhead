@@ -1,0 +1,11 @@
+# Secrets and private keys
+.env
+*.env
+*.key
+*.pem
+id_*
+
+# Build artifacts
+/dist/
+/build/
+*.exe

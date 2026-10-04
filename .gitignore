@@ -1,0 +1,40 @@
+# Build output
+/hammerhead
+/dist/
+/build/
+
+# Secrets and Keys
+.env
+*.env
+*.key
+*.pem
+id_*
+!testdata/**
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+coverage.out
+coverage.html
+
+# Temporary
+/tmp/

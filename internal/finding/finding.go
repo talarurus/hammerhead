@@ -1,0 +1,255 @@
+// Package finding defines the normalized Finding model used across Hammerhead.
+//
+// Every security check, regardless of its source (native or external tool),
+// produces Finding values. Findings are pure data: serializable, sortable,
+// and free of filesystem or runtime behavior.
+package finding
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// Severity represents the security severity of a finding.
+type Severity int
+
+const (
+	SeverityInfo     Severity = iota // Observation, no direct security impact
+	SeverityLow                      // Best-practice deviation, minor risk
+	SeverityMedium                   // Security hygiene issue that increases risk
+	SeverityHigh                     // Likely security issue requiring attention
+	SeverityCritical                 // Active credential exposure or equivalent
+)
+
+var severityNames = [...]string{"info", "low", "medium", "high", "critical"}
+var severityLabels = [...]string{"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
+
+func (s Severity) String() string {
+	if int(s) >= 0 && int(s) < len(severityNames) {
+		return severityNames[s]
+	}
+	return "unknown"
+}
+
+// Label returns the uppercase display label for the severity.
+func (s Severity) Label() string {
+	if int(s) >= 0 && int(s) < len(severityLabels) {
+		return severityLabels[s]
+	}
+	return "UNKNOWN"
+}
+
+func (s Severity) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+func (s *Severity) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	parsed, err := ParseSeverity(str)
+	if err != nil {
+		return err
+	}
+	*s = parsed
+	return nil
+}
+
+// ParseSeverity converts a string to a Severity value.
+func ParseSeverity(s string) (Severity, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "info":
+		return SeverityInfo, nil
+	case "low":
+		return SeverityLow, nil
+	case "medium":
+		return SeverityMedium, nil
+	case "high":
+		return SeverityHigh, nil
+	case "critical":
+		return SeverityCritical, nil
+	default:
+		return SeverityInfo, fmt.Errorf("unknown severity: %q", s)
+	}
+}
+
+// AllSeverities returns all severity levels from critical (highest) to info (lowest).
+func AllSeverities() []Severity {
+	return []Severity{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow, SeverityInfo}
+}
+
+// Confidence represents how certain a finding is.
+type Confidence int
+
+const (
+	ConfidenceLow    Confidence = iota // Heuristic match, may be false positive
+	ConfidenceMedium                   // Pattern match with reasonable accuracy
+	ConfidenceHigh                     // High-certainty detection
+)
+
+var confidenceNames = [...]string{"low", "medium", "high"}
+
+func (c Confidence) String() string {
+	if int(c) >= 0 && int(c) < len(confidenceNames) {
+		return confidenceNames[c]
+	}
+	return "unknown"
+}
+
+func (c Confidence) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.String())
+}
+
+func (c *Confidence) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return err
+	}
+	switch strings.ToLower(strings.TrimSpace(str)) {
+	case "low":
+		*c = ConfidenceLow
+	case "medium":
+		*c = ConfidenceMedium
+	case "high":
+		*c = ConfidenceHigh
+	default:
+		return fmt.Errorf("unknown confidence: %q", str)
+	}
+	return nil
+}
+
+// Category classifies what kind of issue a finding represents.
+type Category string
+
+const (
+	CategorySecrets Category = "secrets"
+	CategoryFiles   Category = "files"
+	CategoryGit     Category = "git"
+	CategoryProject Category = "project"
+	CategoryConfig  Category = "config"
+)
+
+// FindingClass distinguishes actionable security vulnerabilities from repository hygiene
+// and project/informational context.
+type FindingClass string
+
+const (
+	ClassSecurity FindingClass = "security" // Active credential exposure, sensitive files, direct security risks
+	ClassHygiene  FindingClass = "hygiene"  // Best practices, gitignore coverage, README/LICENSE, large files
+	ClassInfo     FindingClass = "info"     // Project runtime context, clean worktree status
+)
+
+// Finding represents a single security or hygiene finding.
+//
+// Every field is justified:
+//   - ID:          unique instance identifier for deduplication and suppression
+//   - RuleID:      links to the check definition (e.g., "FILE-001")
+//   - Class:       categorizes as security, hygiene, or info (drives overall security risk)
+//   - Category:    groups findings for reporting
+//   - Severity:    severity within the class
+//   - Confidence:  prevents pattern-based checks from overstating certainty
+//   - Title:       one-line human summary
+//   - Description: explains why this matters
+//   - Remediation: actionable fix guidance
+//   - Path:        location in repository (relative to root)
+//   - Line:        specific line number, if applicable
+//   - Evidence:    sanitized snippet (secrets redacted)
+//   - Source:      provenance ("hammerhead" or future external tool name)
+//   - CheckVer:    version of the check that produced this finding
+type Finding struct {
+	ID          string       `json:"id"`
+	RuleID      string       `json:"rule_id"`
+	Class       FindingClass `json:"class"`
+	Category    Category     `json:"category"`
+	Severity    Severity     `json:"severity"`
+	Confidence  Confidence   `json:"confidence"`
+	Title       string       `json:"title"`
+	Description string       `json:"description"`
+	Remediation string       `json:"remediation"`
+	Path        string       `json:"path,omitempty"`
+	Line        int          `json:"line,omitempty"`
+	Evidence    string       `json:"evidence,omitempty"`
+	Source      string       `json:"source"`
+	CheckVer    string       `json:"check_ver"`
+}
+
+// AffectsSecurityRisk returns true if the finding represents a direct security issue.
+func (f Finding) AffectsSecurityRisk() bool {
+	return f.Class == ClassSecurity
+}
+
+// GenerateID produces a deterministic instance ID from rule ID and path.
+// The same rule + path always produces the same ID, enabling deduplication.
+func GenerateID(ruleID, path string) string {
+	h := sha256.Sum256([]byte(ruleID + ":" + path))
+	return fmt.Sprintf("%s-%x", ruleID, h[:4])
+}
+
+// BySeverity implements sort.Interface, sorting findings by severity descending
+// (critical first, info last).
+type BySeverity []Finding
+
+func (f BySeverity) Len() int           { return len(f) }
+func (f BySeverity) Less(i, j int) bool { return f[i].Severity > f[j].Severity }
+func (f BySeverity) Swap(i, j int)      { f[i], f[j] = f[j], f[i] }
+
+// CountBySeverity returns a count of findings at each severity level.
+func CountBySeverity(findings []Finding) map[Severity]int {
+	counts := make(map[Severity]int)
+	for _, f := range findings {
+		counts[f.Severity]++
+	}
+	return counts
+}
+
+// MaxSeverity returns the highest severity among all findings.
+// Returns SeverityInfo if the slice is empty.
+func MaxSeverity(findings []Finding) Severity {
+	max := SeverityInfo
+	for _, f := range findings {
+		if f.Severity > max {
+			max = f.Severity
+		}
+	}
+	return max
+}
+
+// MaxSecuritySeverity returns the highest severity strictly among findings that
+// affect security risk (f.Class == ClassSecurity).
+// Returns (SeverityInfo, false) if there are no security findings.
+func MaxSecuritySeverity(findings []Finding) (Severity, bool) {
+	hasSecurity := false
+	max := SeverityInfo
+	for _, f := range findings {
+		if f.AffectsSecurityRisk() {
+			hasSecurity = true
+			if f.Severity > max {
+				max = f.Severity
+			}
+		}
+	}
+	return max, hasSecurity
+}
+
+// CountByClass returns counts of findings grouped by FindingClass.
+func CountByClass(findings []Finding) map[FindingClass]int {
+	counts := make(map[FindingClass]int)
+	for _, f := range findings {
+		counts[f.Class]++
+	}
+	return counts
+}
+
+// AboveThreshold returns findings at or above the given severity.
+func AboveThreshold(findings []Finding, threshold Severity) []Finding {
+	var result []Finding
+	for _, f := range findings {
+		if f.Severity >= threshold {
+			result = append(result, f)
+		}
+	}
+	return result
+}
