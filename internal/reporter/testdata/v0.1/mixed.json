@@ -1,0 +1,70 @@
+{
+  "findings": [
+    {
+      "category": "",
+      "check_ver": "",
+      "class": "security",
+      "confidence": "high",
+      "description": "A hardcoded secret was found.",
+      "id": "",
+      "line": 42,
+      "path": "src/main.go",
+      "remediation": "Remove the secret.",
+      "rule_id": "SEC-001",
+      "severity": "critical",
+      "source": "",
+      "title": "Hardcoded Secret"
+    },
+    {
+      "category": "",
+      "check_ver": "",
+      "class": "hygiene",
+      "confidence": "high",
+      "description": "No README file found.",
+      "id": "",
+      "remediation": "Add a README.",
+      "rule_id": "PROJ-001",
+      "severity": "low",
+      "source": "",
+      "title": "Missing README"
+    },
+    {
+      "category": "",
+      "check_ver": "",
+      "class": "info",
+      "confidence": "high",
+      "description": "Uncommitted changes.",
+      "id": "",
+      "remediation": "Commit or stash changes.",
+      "rule_id": "GIT-002",
+      "severity": "info",
+      "source": "",
+      "title": "Dirty Worktree"
+    }
+  ],
+  "repository": {
+    "root": "/tmp/hammerhead-test-root"
+  },
+  "schema": "hammerhead/v0.1",
+  "summary": {
+    "by_class": {
+      "hygiene": 1,
+      "info": 1,
+      "security": 1
+    },
+    "by_severity": {
+      "critical": 1,
+      "info": 1,
+      "low": 1
+    },
+    "checks_run": 7,
+    "hygiene_findings_count": 1,
+    "info_findings_count": 1,
+    "max_severity": "critical",
+    "security_findings_count": 1,
+    "security_risk": "critical",
+    "total_findings": 3
+  },
+  "timestamp": "2026-10-05T00:00:00Z",
+  "version": "0.1.0"
+}

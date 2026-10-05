@@ -1,0 +1,26 @@
+{
+  "errors": [
+    {
+      "check_id": "GIT-001",
+      "message": "failed to read .gitignore"
+    }
+  ],
+  "findings": [],
+  "repository": {
+    "root": "/tmp/hammerhead-test-root"
+  },
+  "schema": "hammerhead/v0.1",
+  "summary": {
+    "by_class": {},
+    "by_severity": {},
+    "checks_run": 7,
+    "hygiene_findings_count": 0,
+    "info_findings_count": 0,
+    "max_severity": "info",
+    "security_findings_count": 0,
+    "security_risk": "none",
+    "total_findings": 0
+  },
+  "timestamp": "2026-10-05T00:00:00Z",
+  "version": "0.1.0"
+}

@@ -1,0 +1,8 @@
+{
+  "check-error": "[CRITICAL] [SEC-001] src/main.go:42 Hardcoded Secret\n[ERROR] [GIT-001] failed to read .gitignore\n",
+  "empty": "",
+  "hygiene": "[LOW] [PROJ-001] Missing README\n",
+  "mixed": "[CRITICAL] [SEC-001] src/main.go:42 Hardcoded Secret\n[LOW] [PROJ-001] Missing README\n[INFO] [GIT-002] Dirty Worktree\n",
+  "skipped": "",
+  "zero-findings-error": "[ERROR] [GIT-001] failed to read .gitignore\n"
+}

@@ -1,0 +1,32 @@
+{
+  "check-error": {
+    "json": "15cdf580fecb60c52ecf65452e40bd76c87ef0cbaa7ca6b277c5247ba528486b",
+    "quiet": "2c27fec385cdabab56be5c2c095f4837c49ea26caf6441078ba9c874bf63cc9e",
+    "terminal": "2068c3fc77b74a4e3cd81ef46a4f74caba498fec8b81fcbe04586f0027f81e13"
+  },
+  "empty": {
+    "json": "e33aa0689027409d56e1beeaade270c8727bf6fd6c505b0f1fa4682536890b43",
+    "quiet": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "terminal": "ad9c3e13ff1be3cbd49c25d677e12c5ee6e6d578599faf6f1e789b22c1ae3ea6"
+  },
+  "hygiene": {
+    "json": "0395c664eb8a1534ea031a75bd9b618ebf00e008d60407a9d20944fec22326b4",
+    "quiet": "04fcc5c0b672076df1938caa85027aed18f24f830c8bfb9b6161e02d4d534396",
+    "terminal": "9b22f84701e06d9d062379443e484abc8015fdc92afb03770263d9931a195f13"
+  },
+  "mixed": {
+    "json": "c47c152f1ee990f6ce0a97971e779b59ebc17d82e3f20f1e6b59c6d4769288c7",
+    "quiet": "b16b0dc6069c8c2340d1ed887b1c48beb7648af7a177ad3f94c66645187aa5c8",
+    "terminal": "9eb8f444793473c703cfdd2e1695c26d53c6d54c1a5482ff98bd81fa48ee62e5"
+  },
+  "skipped": {
+    "json": "e33aa0689027409d56e1beeaade270c8727bf6fd6c505b0f1fa4682536890b43",
+    "quiet": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "terminal": "ad9c3e13ff1be3cbd49c25d677e12c5ee6e6d578599faf6f1e789b22c1ae3ea6"
+  },
+  "zero-findings-error": {
+    "json": "acdd3e049d2bf585cf229866b78a693a24f1eb2310f36986e161eae6cda48195",
+    "quiet": "72fd3483e326a8050fa9cebfccfee4446aa0bfa14fe03dcb39d5146813a03e9f",
+    "terminal": "ad9c3e13ff1be3cbd49c25d677e12c5ee6e6d578599faf6f1e789b22c1ae3ea6"
+  }
+}
