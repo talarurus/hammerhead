@@ -48,7 +48,7 @@ Coverage metrics are operational telemetry and MUST NOT be called a percentage o
 - **reasons**: aggregate structured records of incomplete work across the scan, featuring `code`, `count`, `count_is_lower_bound`, and `examples`.
 - **summary facts**: `findings_retained` (integer), `findings_truncated` (boolean, indicating if the cap was hit), `diagnostic_examples_omitted` (integer).
 
-Diagnostics use typed structures, not free-form messages. They include `stage`, `code`, optional `rule_id`, optional `path`, and a `safe_message`. Raw Go error strings or Git stderr are strictly prohibited from being exported as JSON diagnostics. Bounded, finite reason codes map to user cancellation, invalid root, eligible read failure, budget exhaustion, Git timeout, etc.
+Diagnostics use typed structures, not free-form messages. They include `stage`, `code`, optional `rule_id`, optional `path`, and a `safe_message`. Raw Go error strings or Git stderr are strictly prohibited from being exported as JSON diagnostics. Bounded, finite reason codes map to `user_cancelled`, `deadline_exceeded`, `invalid_root`, `eligible_read_failure`, `budget_exhaustion`, `git_timeout`, `check_failure`, and `traversal_failure`.
 
 Observed counts represent actual measurements, whereas zero values indicate explicitly no occurrences (or no inspection). Lower-bound flags mark counts that were stopped by a budget before complete enumeration. Check statuses include `completed`, `partial`, `failed`, `cancelled`, `not_applicable`, `unavailable`, and `not_run`.
 

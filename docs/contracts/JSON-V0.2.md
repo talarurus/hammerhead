@@ -38,6 +38,10 @@ It includes the following fields and structures:
   - `path` (string): Affected file.
   - `evidence` (string): Redacted evidence string (no raw confirmed secrets).
 - `coverage` (object): Detailed run completion facts.
+  > **Note on Unknown Coverage:**
+  > - `null` is permitted only during intermediate `v0.2-dev` implementation for fields not yet instrumented.
+  > - The released/final Phase-1 contract requires actual values.
+  > - Unknown values must never be converted to fake `0` or `false`.
   - `policy` (object): `exclusions` (array of strings), `effective_limits` (object mapping string to integers with canonical unit-bearing keys including max_depth, max_retained_inventory_entries, etc.).
   - `traversal` (object): Contains non-negative integers `examined_entries`, `discovered_files`, `discovered_directories`, and booleans `inventory_complete`, `root_listing_complete`.
   - `reasons` (array of objects): Aggregate structured records of incomplete work across the entire scan. Fields: `code` (string), `count` (integer), `count_is_lower_bound` (boolean), `examples` (array of strings).

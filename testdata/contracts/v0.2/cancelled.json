@@ -57,7 +57,7 @@
     },
     "reasons": [
       {
-        "code": "user_cancellation",
+        "code": "user_cancelled",
         "count": 1,
         "count_is_lower_bound": false,
         "examples": []
@@ -73,7 +73,7 @@
         "read_bytes": 1024,
         "reason_counts": [
           {
-            "code": "user_cancellation",
+            "code": "user_cancelled",
             "count": 1,
             "count_is_lower_bound": false,
             "examples": []
@@ -88,7 +88,7 @@
   "diagnostics": [
     {
       "stage": "check",
-      "code": "user_cancellation",
+      "code": "user_cancelled",
       "safe_message": "Scan cancelled by user before completion"
     }
   ]

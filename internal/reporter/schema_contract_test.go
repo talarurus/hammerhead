@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+func ptr[T any](v T) *T { return &v }
+
 // Contract models independent of production structs.
 type ContractThreshold struct {
 	FailOn   string `json:"fail_on"`
@@ -43,11 +45,11 @@ type ContractPolicy struct {
 }
 
 type ContractTraversal struct {
-	ExaminedEntries       int64 `json:"examined_entries"`
-	DiscoveredFiles       int64 `json:"discovered_files"`
-	DiscoveredDirectories int64 `json:"discovered_directories"`
-	InventoryComplete     bool  `json:"inventory_complete"`
-	RootListingComplete   bool  `json:"root_listing_complete"`
+	ExaminedEntries       *int64 `json:"examined_entries"`
+	DiscoveredFiles       *int64 `json:"discovered_files"`
+	DiscoveredDirectories *int64 `json:"discovered_directories"`
+	InventoryComplete     *bool  `json:"inventory_complete"`
+	RootListingComplete   *bool  `json:"root_listing_complete"`
 }
 
 type ContractReasonCount struct {
@@ -59,11 +61,11 @@ type ContractReasonCount struct {
 
 type ContractCheck struct {
 	RuleID         string                `json:"rule_id"`
-	CheckVer       string                `json:"check_ver"`
+	CheckVer       *string               `json:"check_ver"`
 	Status         string                `json:"status"`
-	EligibleFiles  int64                 `json:"eligible_files"`
-	InspectedFiles int64                 `json:"inspected_files"`
-	ReadBytes      int64                 `json:"read_bytes"`
+	EligibleFiles  *int64                `json:"eligible_files"`
+	InspectedFiles *int64                `json:"inspected_files"`
+	ReadBytes      *int64                `json:"read_bytes"`
 	ReasonCounts   []ContractReasonCount `json:"reason_counts"`
 }
 
@@ -165,26 +167,57 @@ func ValidateContract(result ContractResult) []error {
 		"unavailable":    true,
 		"not_run":        true,
 	}
+	validReasonCodes := map[string]bool{
+		"user_cancelled":        true,
+		"deadline_exceeded":     true,
+		"invalid_root":          true,
+		"eligible_read_failure": true,
+		"budget_exhaustion":     true,
+		"git_timeout":           true,
+		"check_failure":         true,
+		"traversal_failure":     true,
+	}
+
 	for _, chk := range result.Coverage.Checks {
 		if !validCheckStatuses[chk.Status] {
 			errs = append(errs, fmt.Errorf("invalid check status: '%s'", chk.Status))
 		}
-		if chk.EligibleFiles < 0 || chk.InspectedFiles < 0 || chk.ReadBytes < 0 {
+		if chk.CheckVer == nil {
+			errs = append(errs, fmt.Errorf("check_ver must not be null in final contract"))
+		}
+		if chk.EligibleFiles == nil || chk.InspectedFiles == nil || chk.ReadBytes == nil {
+			errs = append(errs, fmt.Errorf("check numeric fields must not be null in final contract"))
+		} else if *chk.EligibleFiles < 0 || *chk.InspectedFiles < 0 || *chk.ReadBytes < 0 {
 			errs = append(errs, fmt.Errorf("check numeric fields must be non-negative"))
 		}
 		if chk.ReasonCounts == nil {
 			errs = append(errs, fmt.Errorf("reason_counts should be empty array, not null"))
 		}
 		for _, rc := range chk.ReasonCounts {
+			if !validReasonCodes[rc.Code] {
+				errs = append(errs, fmt.Errorf("invalid reason code in check coverage: '%s'", rc.Code))
+			}
 			if rc.Count < 0 {
 				errs = append(errs, fmt.Errorf("reason count must be non-negative"))
 			}
 		}
 	}
 
-	if result.Coverage.Traversal.ExaminedEntries < 0 ||
-		result.Coverage.Traversal.DiscoveredFiles < 0 ||
-		result.Coverage.Traversal.DiscoveredDirectories < 0 {
+	for _, r := range result.Coverage.Reasons {
+		if !validReasonCodes[r.Code] {
+			errs = append(errs, fmt.Errorf("invalid reason code in coverage.reasons: '%s'", r.Code))
+		}
+	}
+
+	if result.Coverage.Traversal.ExaminedEntries == nil ||
+		result.Coverage.Traversal.DiscoveredFiles == nil ||
+		result.Coverage.Traversal.DiscoveredDirectories == nil ||
+		result.Coverage.Traversal.InventoryComplete == nil ||
+		result.Coverage.Traversal.RootListingComplete == nil {
+		errs = append(errs, fmt.Errorf("traversal coverage fields must not be null in final contract"))
+	} else if *result.Coverage.Traversal.ExaminedEntries < 0 ||
+		*result.Coverage.Traversal.DiscoveredFiles < 0 ||
+		*result.Coverage.Traversal.DiscoveredDirectories < 0 {
 		errs = append(errs, fmt.Errorf("traversal numeric fields must be non-negative"))
 	}
 
@@ -228,6 +261,9 @@ func ValidateContract(result ContractResult) []error {
 	for _, d := range result.Diagnostics {
 		if d.Stage == "" || d.Code == "" || d.SafeMessage == "" {
 			errs = append(errs, fmt.Errorf("diagnostics must have stage, code, and safe_message"))
+		}
+		if !validReasonCodes[d.Code] {
+			errs = append(errs, fmt.Errorf("invalid reason code in diagnostics: '%s'", d.Code))
 		}
 	}
 
@@ -414,7 +450,14 @@ func TestNegativeContractValidation(t *testing.T) {
 		{
 			name: "negative numeric fields",
 			modifier: func(r *ContractResult) {
-				r.Coverage.Traversal.ExaminedEntries = -1
+				neg := int64(-1)
+				pos := int64(0)
+				b := false
+				r.Coverage.Traversal.ExaminedEntries = &neg
+				r.Coverage.Traversal.DiscoveredFiles = &pos
+				r.Coverage.Traversal.DiscoveredDirectories = &pos
+				r.Coverage.Traversal.InventoryComplete = &b
+				r.Coverage.Traversal.RootListingComplete = &b
 			},
 			expectError: "traversal numeric fields must be non-negative",
 		},
@@ -431,6 +474,36 @@ func TestNegativeContractValidation(t *testing.T) {
 				delete(r.Coverage.Policy.EffectiveLimits, "max_depth")
 			},
 			expectError: "missing required effective limit: max_depth",
+		},
+		{
+			name: "unknown reason code in check coverage",
+			modifier: func(r *ContractResult) {
+				ver := "1.0"
+				var ef int64 = 0
+				r.Coverage.Checks = []ContractCheck{{
+					Status:         "completed",
+					CheckVer:       &ver,
+					EligibleFiles:  &ef,
+					InspectedFiles: &ef,
+					ReadBytes:      &ef,
+					ReasonCounts:   []ContractReasonCount{{Code: "unknown_code", Count: 1}},
+				}}
+			},
+			expectError: "invalid reason code in check coverage: 'unknown_code'",
+		},
+		{
+			name: "unknown reason code in reasons",
+			modifier: func(r *ContractResult) {
+				r.Coverage.Reasons = []ContractReasonCount{{Code: "unknown_code", Count: 1}}
+			},
+			expectError: "invalid reason code in coverage.reasons: 'unknown_code'",
+		},
+		{
+			name: "unknown reason code in diagnostics",
+			modifier: func(r *ContractResult) {
+				r.Diagnostics = []ContractDiagnostic{{Stage: "test", Code: "unknown_code", SafeMessage: "msg"}}
+			},
+			expectError: "invalid reason code in diagnostics: 'unknown_code'",
 		},
 	}
 
@@ -450,6 +523,14 @@ func TestNegativeContractValidation(t *testing.T) {
 				Findings:    []ContractFinding{},
 				Diagnostics: []ContractDiagnostic{},
 				Coverage: ContractCoverage{
+					FindingsRetained: 0,
+					Traversal: ContractTraversal{
+						ExaminedEntries:       ptr(int64(0)),
+						DiscoveredFiles:       ptr(int64(0)),
+						DiscoveredDirectories: ptr(int64(0)),
+						InventoryComplete:     ptr(true),
+						RootListingComplete:   ptr(true),
+					},
 					Checks:  []ContractCheck{},
 					Reasons: []ContractReasonCount{},
 					Policy: ContractPolicy{
