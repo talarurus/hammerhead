@@ -54,8 +54,15 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 				fmt.Fprintf(w, "[%s] [%s] %s\n", f.Severity.Label(), cleanRuleID, cleanTitle)
 			}
 		}
-		for _, e := range result.Errors {
-			fmt.Fprintf(w, "[ERROR] [%s] %s\n", SanitizeOneLine(e.CheckID), SanitizeOneLine(e.Err.Error()))
+		for _, d := range result.Diagnostics {
+			prefix := ""
+			if d.RuleID != "" {
+				prefix = fmt.Sprintf("[%s] ", SanitizeOneLine(d.RuleID))
+			}
+			fmt.Fprintf(w, "[DIAGNOSTIC] %s%s\n", prefix, SanitizeOneLine(d.SafeMessage))
+		}
+		if string(result.Status) != "completed" {
+			fmt.Fprintf(w, "[STATUS] %s\n", strings.ToUpper(string(result.Status)))
 		}
 		return nil
 	}
@@ -71,13 +78,38 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 	fmt.Fprintf(w, "  Path:        %s\n", SanitizeOneLine(result.RepoRoot))
 	fmt.Fprintf(w, "  Checks run:  %d\n", result.ChecksRun)
 
+	// Incomplete output helper
+	printDiagnostics := func() {
+		if len(result.Diagnostics) > 0 {
+			t.writeln(w, "")
+			t.writeColored(w, colorYellow, "  DIAGNOSTICS")
+			t.writeln(w, "")
+			for _, d := range result.Diagnostics {
+				prefix := ""
+				if d.RuleID != "" {
+					prefix = fmt.Sprintf("[%s] ", SanitizeOneLine(d.RuleID))
+				}
+				fmt.Fprintf(w, "    • %s%s\n", prefix, SanitizeOneLine(d.SafeMessage))
+			}
+		}
+	}
+
 	if len(result.Findings) == 0 {
 		t.writeln(w, "")
 		fmt.Fprintf(w, "  Security risk:          ")
-		t.writeColored(w, colorGreen, "NONE")
-		t.writeln(w, "")
-		t.writeln(w, "")
-		t.writeColored(w, colorGreen, "  ✓ No findings")
+
+		if string(result.Status) == "completed" {
+			t.writeColored(w, colorGreen, "NONE")
+			t.writeln(w, "")
+			t.writeln(w, "")
+			t.writeColored(w, colorGreen, "  ✓ No findings")
+		} else {
+			t.writeColored(w, colorYellow, "UNKNOWN")
+			t.writeln(w, "")
+			t.writeln(w, "")
+			t.writeColored(w, colorYellow, fmt.Sprintf("  ⚠ Scan %s with no findings", result.Status))
+			printDiagnostics()
+		}
 		t.writeln(w, "")
 		return nil
 	}
@@ -94,8 +126,10 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 	fmt.Fprintf(w, "  Security risk:          ")
 	if hasSec {
 		t.writeColored(w, severityColor(maxSec), maxSec.Label())
-	} else {
+	} else if string(result.Status) == "completed" {
 		t.writeColored(w, colorGreen, "NONE")
+	} else {
+		t.writeColored(w, colorYellow, "UNKNOWN")
 	}
 	t.writeln(w, "")
 
@@ -184,14 +218,13 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 	renderGroup("HYGIENE OBSERVATIONS", hygFindings)
 	renderGroup("INFORMATIONAL CONTEXT", infoFindings)
 
-	// Check errors
-	if len(result.Errors) > 0 {
+	// Status and Diagnostics
+	if string(result.Status) != "completed" {
 		t.writeln(w, "")
-		t.writeColored(w, colorYellow, "  WARNINGS")
-		t.writeln(w, "")
-		for _, e := range result.Errors {
-			fmt.Fprintf(w, "    • Check %s: %s\n", SanitizeOneLine(e.CheckID), SanitizeOneLine(e.Err.Error()))
-		}
+		t.writeColored(w, colorYellow, fmt.Sprintf("  ⚠ Scan %s", strings.ToUpper(string(result.Status))))
+		printDiagnostics()
+	} else if len(result.Diagnostics) > 0 {
+		printDiagnostics()
 	}
 
 	t.writeln(w, "")

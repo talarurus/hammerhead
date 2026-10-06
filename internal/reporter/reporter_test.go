@@ -2,13 +2,18 @@ package reporter_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/engine"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/fs"
 	"github.com/ammaarrehman/hammerhead/internal/reporter"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 func sampleScanResult() *engine.ScanResult {
@@ -85,6 +90,108 @@ func TestTerminalReporter_WithFindings(t *testing.T) {
 	}
 }
 
+func TestEngineToJSON_PartialTraversal(t *testing.T) {
+	// Create a tiny repository
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("a"), 0644); err != nil {
+		t.Fatalf("failed to write file1: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("b"), 0644); err != nil {
+		t.Fatalf("failed to write file2: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "file3.txt"), []byte("c"), 0644); err != nil {
+		t.Fatalf("failed to write file3: %v", err)
+	}
+
+	reg := engine.NewRegistry()
+	eng := engine.New(reg)
+
+	// Set tiny limit
+	cfg := &engine.ScanConfig{
+		Walker: &fs.WalkerConfig{MaxFiles: 1},
+	}
+
+	res, err := eng.Scan(context.Background(), tmpDir, cfg)
+	if err == nil {
+		t.Fatalf("expected operational failure, got nil")
+	}
+
+	var buf bytes.Buffer
+	rep := &reporter.JSON{Writer: &buf}
+	if err := rep.Report(res); err != nil {
+		t.Fatalf("failed to report JSON: %v", err)
+	}
+
+	var parsed struct {
+		Schema   string `json:"schema"`
+		Status   string `json:"status"`
+		Coverage struct {
+			Reasons   []scanstate.Reason `json:"reasons"`
+			Traversal struct {
+				ExaminedEntries       *int  `json:"examined_entries"`
+				DiscoveredFiles       *int  `json:"discovered_files"`
+				DiscoveredDirectories *int  `json:"discovered_directories"`
+				InventoryComplete     *bool `json:"inventory_complete"`
+				RootListingComplete   *bool `json:"root_listing_complete"`
+			} `json:"traversal"`
+			Policy struct {
+				Exclusions      []string         `json:"exclusions"`
+				EffectiveLimits map[string]int64 `json:"effective_limits"`
+			} `json:"policy"`
+			Checks           []scanstate.CheckCoverage `json:"checks"`
+			FindingsRetained int                       `json:"findings_retained"`
+		} `json:"coverage"`
+		Diagnostics []scanstate.Diagnostic `json:"diagnostics"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+
+	if parsed.Schema != "hammerhead/v0.2" {
+		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	}
+	if parsed.Status != "partial" {
+		t.Errorf("expected status partial, got %q", parsed.Status)
+	}
+	if len(parsed.Diagnostics) == 0 || parsed.Diagnostics[0].Code != scanstate.ReasonBudgetExhaustion {
+		t.Errorf("expected diagnostic budget_exhaustion, got %v", parsed.Diagnostics)
+	}
+	foundReason := false
+	for _, r := range parsed.Coverage.Reasons {
+		if r.Code == scanstate.ReasonBudgetExhaustion {
+			foundReason = true
+		}
+	}
+	if !foundReason {
+		t.Errorf("expected coverage.reasons to contain budget_exhaustion, got %v", parsed.Coverage.Reasons)
+	}
+	if parsed.Coverage.FindingsRetained != 0 {
+		t.Errorf("expected 0 findings retained, got %d", parsed.Coverage.FindingsRetained)
+	}
+	if parsed.Coverage.Traversal.DiscoveredFiles == nil || *parsed.Coverage.Traversal.DiscoveredFiles != 1 {
+		t.Errorf("expected discovered_files 1, got %v", parsed.Coverage.Traversal.DiscoveredFiles)
+	}
+	if parsed.Coverage.Traversal.InventoryComplete == nil || *parsed.Coverage.Traversal.InventoryComplete != false {
+		t.Errorf("expected inventory_complete false, got %v", parsed.Coverage.Traversal.InventoryComplete)
+	}
+	if parsed.Coverage.Traversal.ExaminedEntries != nil {
+		t.Errorf("expected examined_entries null, got %v", parsed.Coverage.Traversal.ExaminedEntries)
+	}
+	if parsed.Coverage.Traversal.DiscoveredDirectories != nil {
+		t.Errorf("expected discovered_directories null, got %v", parsed.Coverage.Traversal.DiscoveredDirectories)
+	}
+	if parsed.Coverage.Traversal.RootListingComplete != nil {
+		t.Errorf("expected root_listing_complete null, got %v", parsed.Coverage.Traversal.RootListingComplete)
+	}
+	if parsed.Coverage.Policy.Exclusions != nil {
+		t.Errorf("expected exclusions null, got %v", parsed.Coverage.Policy.Exclusions)
+	}
+	if parsed.Coverage.Policy.EffectiveLimits != nil {
+		t.Errorf("expected effective_limits null, got %v", parsed.Coverage.Policy.EffectiveLimits)
+	}
+}
+
 func TestTerminalReporter_Clean(t *testing.T) {
 	var buf bytes.Buffer
 	term := &reporter.Terminal{
@@ -92,7 +199,7 @@ func TestTerminalReporter_Clean(t *testing.T) {
 		Color:  false,
 	}
 
-	result := &engine.ScanResult{
+	result := &engine.ScanResult{Status: scanstate.StatusCompleted,
 		RepoRoot:  "/clean/repo",
 		ChecksRun: 1,
 		Findings:  nil,
@@ -131,7 +238,7 @@ func TestJSONReporter_ValidOutput(t *testing.T) {
 		t.Fatalf("JSON output invalid: %v\nOutput was: %s", err, buf.String())
 	}
 
-	if parsed.Schema != "hammerhead/v0.1" {
+	if parsed.Schema != "hammerhead/v0.2" {
 		t.Errorf("expected schema hammerhead/v0.1, got %q", parsed.Schema)
 	}
 	if len(parsed.Findings) != 2 {
@@ -149,7 +256,7 @@ func TestJSONReporter_EmptyFindingsArray(t *testing.T) {
 		Pretty: false,
 	}
 
-	result := &engine.ScanResult{
+	result := &engine.ScanResult{Status: scanstate.StatusCompleted,
 		RepoRoot:  "/clean/repo",
 		ChecksRun: 1,
 		Findings:  nil, // nil slice
@@ -209,7 +316,7 @@ func TestTerminalReporter_HygieneOnly(t *testing.T) {
 		Color:  false,
 	}
 
-	result := &engine.ScanResult{
+	result := &engine.ScanResult{Status: scanstate.StatusCompleted,
 		RepoRoot:  "/hygiene/repo",
 		ChecksRun: 2,
 		Findings: []finding.Finding{
@@ -251,7 +358,7 @@ func TestJSONReporter_SecurityRiskHygieneOnly(t *testing.T) {
 		Pretty: true,
 	}
 
-	result := &engine.ScanResult{
+	result := &engine.ScanResult{Status: scanstate.StatusCompleted,
 		RepoRoot:  "/hygiene/repo",
 		ChecksRun: 2,
 		Findings: []finding.Finding{
@@ -272,10 +379,9 @@ func TestJSONReporter_SecurityRiskHygieneOnly(t *testing.T) {
 
 	var parsed struct {
 		Summary struct {
-			SecurityRisk          string `json:"security_risk"`
-			TotalFindings         int    `json:"total_findings"`
-			SecurityFindingsCount int    `json:"security_findings_count"`
-			HygieneFindingsCount  int    `json:"hygiene_findings_count"`
+			HighestSecuritySeverity string         `json:"highest_security_severity"`
+			FindingsCount           int            `json:"findings_count"`
+			ClassCounts             map[string]int `json:"class_counts"`
 		} `json:"summary"`
 	}
 
@@ -283,13 +389,271 @@ func TestJSONReporter_SecurityRiskHygieneOnly(t *testing.T) {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 
-	if parsed.Summary.SecurityRisk != "none" {
-		t.Errorf("expected security_risk to be 'none', got %q", parsed.Summary.SecurityRisk)
+	if parsed.Summary.HighestSecuritySeverity != "" {
+		t.Errorf("expected highest_security_severity to be empty, got %q", parsed.Summary.HighestSecuritySeverity)
 	}
-	if parsed.Summary.SecurityFindingsCount != 0 {
-		t.Errorf("expected 0 security findings, got %d", parsed.Summary.SecurityFindingsCount)
+	if parsed.Summary.ClassCounts["security"] != 0 {
+		t.Errorf("expected 0 security findings, got %d", parsed.Summary.ClassCounts["security"])
 	}
-	if parsed.Summary.HygieneFindingsCount != 1 {
-		t.Errorf("expected 1 hygiene finding, got %d", parsed.Summary.HygieneFindingsCount)
+	if parsed.Summary.ClassCounts["hygiene"] != 1 {
+		t.Errorf("expected 1 hygiene finding, got %d", parsed.Summary.ClassCounts["hygiene"])
+	}
+}
+
+func TestJSON_PartialCoverage(t *testing.T) {
+	var buf bytes.Buffer
+	jsonRep := &reporter.JSON{
+		Writer: &buf,
+		Pretty: true,
+	}
+
+	ptrInt := func(i int) *int { return &i }
+	ptrBool := func(b bool) *bool { return &b }
+
+	result := &engine.ScanResult{
+		Status: scanstate.StatusPartial,
+		FailOn: finding.SeverityHigh,
+		Diagnostics: []scanstate.Diagnostic{
+			{Stage: "check", Code: scanstate.ReasonCheckFailure, SafeMessage: "some error"},
+		},
+		Coverage: scanstate.Coverage{
+			Traversal: scanstate.TraversalCoverage{
+				ExaminedEntries:   ptrInt(5),
+				InventoryComplete: ptrBool(false),
+			},
+		},
+	}
+
+	if err := jsonRep.Report(result); err != nil {
+		t.Fatalf("Report failed: %v", err)
+	}
+
+	var parsed struct {
+		Schema    string `json:"schema"`
+		Status    string `json:"status"`
+		Threshold struct {
+			FailOn string `json:"fail_on"`
+		} `json:"threshold"`
+		Coverage struct {
+			Traversal struct {
+				ExaminedEntries   int  `json:"examined_entries"`
+				InventoryComplete bool `json:"inventory_complete"`
+			} `json:"traversal"`
+		} `json:"coverage"`
+		Diagnostics []struct {
+			Code string `json:"code"`
+		} `json:"diagnostics"`
+	}
+
+	if err := json.Unmarshal(buf.Bytes(), &parsed); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+
+	if parsed.Schema != "hammerhead/v0.2" {
+		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	}
+	if parsed.Status != "partial" {
+		t.Errorf("expected status partial, got %q", parsed.Status)
+	}
+	if parsed.Threshold.FailOn != "high" {
+		t.Errorf("expected fail_on high, got %q", parsed.Threshold.FailOn)
+	}
+	if parsed.Coverage.Traversal.ExaminedEntries != 5 {
+		t.Errorf("expected 5 examined entries, got %d", parsed.Coverage.Traversal.ExaminedEntries)
+	}
+	if parsed.Coverage.Traversal.InventoryComplete {
+		t.Errorf("expected InventoryComplete to be false")
+	}
+	if len(parsed.Diagnostics) != 1 || parsed.Diagnostics[0].Code != string(scanstate.ReasonCheckFailure) {
+		t.Errorf("expected diagnostic check_failure, got %v", parsed.Diagnostics)
+	}
+}
+
+func TestTerminal_ZeroFindingsWithFailure(t *testing.T) {
+	var buf bytes.Buffer
+	term := reporter.NewTerminal()
+	term.Writer = &buf
+	term.Color = false
+
+	result := &engine.ScanResult{
+		Status: scanstate.StatusPartial,
+		Diagnostics: []scanstate.Diagnostic{
+			{Stage: "traversal", Code: scanstate.ReasonBudgetExhaustion, SafeMessage: "hit limit"},
+		},
+	}
+
+	if err := term.Report(result); err != nil {
+		t.Fatalf("Report failed: %v", err)
+	}
+
+	out := buf.String()
+	if !strings.Contains(out, "Security risk:          UNKNOWN") {
+		t.Errorf("expected UNKNOWN security risk, got:\n%s", out)
+	}
+	if !strings.Contains(out, "⚠ Scan partial with no findings") {
+		t.Errorf("expected partial status message, got:\n%s", out)
+	}
+	if !strings.Contains(out, "hit limit") {
+		t.Errorf("expected diagnostic to be printed, got:\n%s", out)
+	}
+	if strings.Contains(out, "✓ No findings") {
+		t.Errorf("expected no clean success message, got:\n%s", out)
+	}
+
+	// Test quiet mode
+	buf.Reset()
+	term.Quiet = true
+	if err := term.Report(result); err != nil {
+		t.Fatalf("Report quiet failed: %v", err)
+	}
+
+	outQuiet := buf.String()
+	if !strings.Contains(outQuiet, "[DIAGNOSTIC] hit limit") {
+		t.Errorf("expected diagnostic in quiet mode, got:\n%s", outQuiet)
+	}
+	if !strings.Contains(outQuiet, "[STATUS] PARTIAL") {
+		t.Errorf("expected status in quiet mode, got:\n%s", outQuiet)
+	}
+}
+
+func TestV02JSON_MatchesGoldens(t *testing.T) {
+	ptrInt := func(i int) *int { return &i }
+	ptrBool := func(b bool) *bool { return &b }
+
+	scenarios := map[string]*engine.ScanResult{
+		"completed": {
+			Status:    scanstate.StatusCompleted,
+			FailOn:    finding.SeverityHigh,
+			RepoRoot:  "/repo",
+			ChecksRun: 1,
+			Findings:  []finding.Finding{},
+			Coverage: scanstate.Coverage{
+				FindingsRetained: 0,
+				Traversal: scanstate.TraversalCoverage{
+					ExaminedEntries:   ptrInt(10),
+					InventoryComplete: ptrBool(true),
+				},
+				Checks:  []scanstate.CheckCoverage{},
+				Reasons: []scanstate.Reason{},
+				Policy: scanstate.PolicyCoverage{
+					EffectiveLimits: map[string]int64{"max_depth": 50},
+				},
+			},
+		},
+		"partial-zero": {
+			Status:    scanstate.StatusPartial,
+			FailOn:    finding.SeverityHigh,
+			RepoRoot:  "/repo",
+			ChecksRun: 1,
+			Findings:  []finding.Finding{},
+			Diagnostics: []scanstate.Diagnostic{
+				{Stage: "traversal", Code: scanstate.ReasonBudgetExhaustion, SafeMessage: "hit limit"},
+			},
+			Coverage: scanstate.Coverage{
+				FindingsRetained: 0,
+				Traversal: scanstate.TraversalCoverage{
+					ExaminedEntries:   ptrInt(10),
+					InventoryComplete: ptrBool(false),
+				},
+				Checks:  []scanstate.CheckCoverage{},
+				Reasons: []scanstate.Reason{{Code: scanstate.ReasonBudgetExhaustion, Count: 1, Examples: []string{}}},
+				Policy: scanstate.PolicyCoverage{
+					EffectiveLimits: map[string]int64{"max_depth": 50},
+				},
+			},
+		},
+		"partial-retained": {
+			Status:    scanstate.StatusPartial,
+			FailOn:    finding.SeverityHigh,
+			RepoRoot:  "/repo",
+			ChecksRun: 1,
+			Findings: []finding.Finding{
+				{
+					ID: "SEC-123", RuleID: "SEC-001", Severity: finding.SeverityHigh,
+					Class: finding.ClassSecurity, Title: "Vuln",
+				},
+			},
+			Diagnostics: []scanstate.Diagnostic{
+				{Stage: "check", Code: scanstate.ReasonCheckFailure, SafeMessage: "check error"},
+			},
+			Coverage: scanstate.Coverage{
+				FindingsRetained: 1,
+				Traversal: scanstate.TraversalCoverage{
+					ExaminedEntries:   ptrInt(10),
+					InventoryComplete: ptrBool(true),
+				},
+				Checks:  []scanstate.CheckCoverage{},
+				Reasons: []scanstate.Reason{{Code: scanstate.ReasonCheckFailure, Count: 1, Examples: []string{}}},
+				Policy: scanstate.PolicyCoverage{
+					EffectiveLimits: map[string]int64{"max_depth": 50},
+				},
+			},
+		},
+		"cancelled-retained": {
+			Status:    scanstate.StatusCancelled,
+			FailOn:    finding.SeverityHigh,
+			RepoRoot:  "/repo",
+			ChecksRun: 1,
+			Findings: []finding.Finding{
+				{
+					ID: "SEC-123", RuleID: "SEC-001", Severity: finding.SeverityHigh,
+					Class: finding.ClassSecurity, Title: "Vuln",
+				},
+			},
+			Diagnostics: []scanstate.Diagnostic{
+				{Stage: "check", Code: scanstate.ReasonUserCancelled, SafeMessage: "user cancel"},
+			},
+			Coverage: scanstate.Coverage{
+				FindingsRetained: 1,
+				Traversal: scanstate.TraversalCoverage{
+					ExaminedEntries:   ptrInt(10),
+					InventoryComplete: ptrBool(true),
+				},
+				Checks:  []scanstate.CheckCoverage{},
+				Reasons: []scanstate.Reason{{Code: scanstate.ReasonUserCancelled, Count: 1, Examples: []string{}}},
+				Policy: scanstate.PolicyCoverage{
+					EffectiveLimits: map[string]int64{"max_depth": 50},
+				},
+			},
+		},
+	}
+
+	for name, res := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			var buf bytes.Buffer
+			jsonRep := reporter.JSON{Writer: &buf, Pretty: true}
+			if err := jsonRep.Report(res); err != nil {
+				t.Fatalf("failed to report: %v", err)
+			}
+
+			// Replace timestamp for stability
+			var m map[string]interface{}
+			if err := json.Unmarshal(buf.Bytes(), &m); err != nil {
+				t.Fatalf("failed to parse: %v", err)
+			}
+			m["timestamp"] = "2026-10-05T00:00:00Z"
+			stableBuf, err := json.MarshalIndent(m, "", "  ")
+			if err != nil {
+				t.Fatalf("failed to marshal: %v", err)
+			}
+
+			filename := filepath.Join("testdata", "v0.2", name+".json")
+			if os.Getenv("UPDATE_GOLDENS") == "1" {
+				if err := os.MkdirAll(filepath.Dir(filename), 0755); err != nil {
+					t.Fatalf("failed to mkdir: %v", err)
+				}
+				if err := os.WriteFile(filename, append(stableBuf, '\n'), 0644); err != nil {
+					t.Fatalf("failed to write file: %v", err)
+				}
+			} else {
+				want, err := os.ReadFile(filename)
+				if err != nil {
+					t.Fatalf("failed to read golden file %s: %v", filename, err)
+				}
+				if string(append(stableBuf, '\n')) != string(want) {
+					t.Errorf("output mismatch for %s", name)
+				}
+			}
+		})
 	}
 }

@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 	"github.com/ammaarrehman/hammerhead/internal/fs"
 	"github.com/ammaarrehman/hammerhead/internal/git"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 // ScanConfig holds configuration for a scan operation.
@@ -31,48 +33,6 @@ type ScanConfig struct {
 	Walker *fs.WalkerConfig
 }
 
-// ScanResult holds the complete output of a scan operation.
-type ScanResult struct {
-	// RepoRoot is the resolved repository root path.
-	RepoRoot string
-
-	// Findings is the list of all findings, sorted by severity (highest first).
-	Findings []finding.Finding
-
-	// ChecksRun is the number of checks that were executed.
-	ChecksRun int
-
-	// Errors contains non-fatal errors from individual checks.
-	// A check error does not prevent other checks from running.
-	Errors []CheckError
-
-	// Skipped contains files/directories skipped during traversal.
-	Skipped []fs.SkippedEntry
-}
-
-// CheckError records a non-fatal error from an individual check.
-type CheckError struct {
-	CheckID string
-	Err     error
-}
-
-func (e CheckError) Error() string {
-	return fmt.Sprintf("check %s: %v", e.CheckID, e.Err)
-}
-
-// ExitCode returns the appropriate exit code based on security findings and threshold.
-//
-//	0 = no security findings at or above the FailOn threshold
-//	1 = security findings at or above the FailOn threshold exist
-func (r *ScanResult) ExitCode(failOn finding.Severity) int {
-	for _, f := range r.Findings {
-		if f.AffectsSecurityRisk() && f.Severity >= failOn {
-			return 1
-		}
-	}
-	return 0
-}
-
 // Engine runs security checks against a repository.
 type Engine struct {
 	registry *Registry
@@ -91,17 +51,59 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
+	result := &ScanResult{
+		Status:   scanstate.StatusCompleted,
+		RepoRoot: targetDir,
+		FailOn:   config.FailOn,
+	}
+
+	// Precedence for status:
+	// 1. cancellation
+	// 2. setup failure -> failed
+	// 3. incomplete required work -> partial
+	// 4. completed
+
+	// Helper to upgrade status following precedence rules
+	upgradeStatus := func(newStatus scanstate.Status) {
+		if result.Status == scanstate.StatusCancelled {
+			return // cancelled is highest precedence
+		}
+		if newStatus == scanstate.StatusFailed {
+			result.Status = scanstate.StatusFailed
+			return
+		}
+		if newStatus == scanstate.StatusPartial && result.Status != scanstate.StatusFailed {
+			result.Status = scanstate.StatusPartial
+		}
+		if newStatus == scanstate.StatusCancelled {
+			result.Status = scanstate.StatusCancelled
+		}
+	}
+
 	// Step 1: Detect Git repository.
 	gitInfo, err := git.DetectRepo(targetDir)
 	if err != nil {
-		return nil, fmt.Errorf("detecting repository: %w", err)
+		upgradeStatus(scanstate.StatusFailed)
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage:       "setup",
+			Code:        scanstate.ReasonInvalidRoot,
+			SafeMessage: "Failed to detect repository",
+		})
+		return result, fmt.Errorf("detecting repository: %w", err)
 	}
 
 	absTarget, err := filepath.Abs(targetDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolving target directory: %w", err)
+		upgradeStatus(scanstate.StatusFailed)
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage:       "setup",
+			Code:        scanstate.ReasonInvalidRoot,
+			SafeMessage: "Failed to resolve target directory",
+		})
+		return result, fmt.Errorf("resolving target directory: %w", err)
 	}
 	repoRoot := absTarget
+	result.RepoRoot = repoRoot
 
 	// Step 2: Walk the repository safely.
 	walkerCfg := config.Walker
@@ -120,17 +122,28 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 	walker, err := fs.NewSafeWalker(repoRoot, walkerCfg)
 	if err != nil {
-		return nil, fmt.Errorf("initializing walker: %w", err)
+		upgradeStatus(scanstate.StatusFailed)
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage:       "setup",
+			Code:        scanstate.ReasonInvalidRoot,
+			SafeMessage: "Failed to initialize walker",
+		})
+		return result, fmt.Errorf("initializing walker: %w", err)
 	}
 
-	walkedFiles, err := walker.Walk()
-	if err != nil {
-		// Walk returns partial results on some errors (e.g., file count exceeded).
-		// Log the error but continue with what we have.
-		// If we got zero files, that's a real problem.
-		if len(walkedFiles) == 0 {
-			return nil, fmt.Errorf("walking repository: %w", err)
+	walkedFiles, walkErr := walker.Walk()
+	if walkErr != nil {
+		upgradeStatus(scanstate.StatusPartial)
+		code := scanstate.ReasonTraversalFailure
+		if errors.Is(walkErr, fs.ErrBudgetExhausted) {
+			code = scanstate.ReasonBudgetExhaustion
 		}
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage:       "traversal",
+			Code:        code,
+			SafeMessage: "Partial traversal completed due to error",
+		})
+		// Keep going with what we have, even if 0 files, because checks like git/project can still run on root.
 	}
 
 	// Step 3: Build ScanContext for checks.
@@ -147,10 +160,21 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 	// Step 4: Run all checks.
 	var allFindings []finding.Finding
-	var checkErrors []CheckError
 	checksRun := 0
+	var finalErr error
+
+	var emittedCancelDiag bool
 
 	for _, c := range e.registry.All() {
+		chkCov := scanstate.CheckCoverage{
+			RuleID:       c.Meta().ID,
+			ReasonCounts: []scanstate.Reason{},
+		}
+		if v := c.Meta().Version; v != "" {
+			vStr := v
+			chkCov.CheckVer = &vStr
+		}
+
 		// Wire dynamic thresholds if configured
 		if lfc, ok := c.(*check.LargeFileCheck); ok && config.LargeFileThreshold > 0 {
 			lfc.ThresholdBytes = config.LargeFileThreshold
@@ -158,31 +182,144 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 		// Check context cancellation before each check.
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("scan cancelled: %w", ctx.Err())
+			if !emittedCancelDiag {
+				upgradeStatus(scanstate.StatusCancelled)
+				code := scanstate.ReasonUserCancelled
+				if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					code = scanstate.ReasonDeadlineExceeded
+				}
+				result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+					Stage:       "check",
+					Code:        code,
+					SafeMessage: "Scan cancelled before check execution",
+				})
+				emittedCancelDiag = true
+				if finalErr == nil {
+					finalErr = ctx.Err()
+				}
+			}
+			chkCov.Status = scanstate.CheckStatusNotRun
+			result.Coverage.Checks = append(result.Coverage.Checks, chkCov)
+			continue
 		}
 
 		checksRun++
 		findings, err := c.Run(ctx, sc)
-		if err != nil {
-			checkErrors = append(checkErrors, CheckError{
-				CheckID: c.Meta().ID,
-				Err:     err,
-			})
+
+		// Always append findings, even if err != nil, as checks might return partial findings.
+		allFindings = append(allFindings, findings...)
+
+		// Immediately inspect ctx.Err()
+		if ctx.Err() != nil {
+			code := scanstate.ReasonUserCancelled
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				code = scanstate.ReasonDeadlineExceeded
+			}
+			if !emittedCancelDiag {
+				upgradeStatus(scanstate.StatusCancelled)
+				result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+					Stage:       "check",
+					Code:        code,
+					SafeMessage: "Scan cancelled during check execution",
+				})
+				emittedCancelDiag = true
+			}
+			chkCov.Status = scanstate.CheckStatusCancelled
+			chkCov.ReasonCounts = []scanstate.Reason{{
+				Code:              code,
+				Count:             1,
+				CountIsLowerBound: false,
+				Examples:          []string{},
+			}}
+			result.Coverage.Checks = append(result.Coverage.Checks, chkCov)
+
+			if err != nil {
+				finalErr = err
+			} else if finalErr == nil {
+				finalErr = ctx.Err()
+			}
 			continue
 		}
-		allFindings = append(allFindings, findings...)
+
+		if err != nil {
+			upgradeStatus(scanstate.StatusPartial)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "check",
+				Code:        scanstate.ReasonCheckFailure,
+				RuleID:      c.Meta().ID,
+				SafeMessage: "Check encountered an error during execution",
+			})
+			chkCov.Status = scanstate.CheckStatusFailed
+			chkCov.ReasonCounts = []scanstate.Reason{{
+				Code:              scanstate.ReasonCheckFailure,
+				Count:             1,
+				CountIsLowerBound: false,
+				Examples:          []string{},
+			}}
+			result.Coverage.Checks = append(result.Coverage.Checks, chkCov)
+		} else {
+			// Unstarted check is not_run. Wait, this is for completed check!
+			// If walk error is budget exhausted, maybe check is partial?
+			// The prompt says: "if the repository inventory is incomplete because traversal failed, do not claim an inventory-dependent check has complete coverage merely because its Run method returned nil; use partial where appropriate"
+			if walkErr != nil {
+				chkCov.Status = scanstate.CheckStatusPartial
+			} else {
+				chkCov.Status = scanstate.CheckStatusCompleted
+			}
+			chkCov.ReasonCounts = []scanstate.Reason{}
+			result.Coverage.Checks = append(result.Coverage.Checks, chkCov)
+		}
 	}
 
 	// Step 5: Sort findings by severity (highest first).
 	sort.Sort(finding.BySeverity(allFindings))
 
-	return &ScanResult{
-		RepoRoot:  walker.Root(),
-		Findings:  allFindings,
-		ChecksRun: checksRun,
-		Errors:    checkErrors,
-		Skipped:   walker.Skipped(),
-	}, nil
+	result.Findings = allFindings
+	result.ChecksRun = checksRun
+	result.Skipped = walker.Skipped()
+
+	// Populate genuine coverage data
+	result.Coverage.FindingsRetained = len(allFindings)
+	result.Coverage.FindingsTruncated = false // P1-01 does not truncate
+
+	discovered := len(walkedFiles)
+	invComplete := walkErr == nil
+
+	// Fill Traversal coverage pointers
+	result.Coverage.Traversal.ExaminedEntries = nil // Not explicitly tracked in P1-01
+	result.Coverage.Traversal.DiscoveredFiles = &discovered
+	result.Coverage.Traversal.InventoryComplete = &invComplete
+
+	// Fill Policy coverage explicitly empty (null)
+	result.Coverage.Policy.Exclusions = nil
+	result.Coverage.Policy.EffectiveLimits = nil
+
+	if result.Coverage.Checks == nil {
+		result.Coverage.Checks = []scanstate.CheckCoverage{}
+	}
+
+	// Populate reasons mapping from diagnostics
+	reasonMap := make(map[scanstate.ReasonCode]int)
+	for _, diag := range result.Diagnostics {
+		reasonMap[diag.Code]++
+	}
+	for code, count := range reasonMap {
+		result.Coverage.Reasons = append(result.Coverage.Reasons, scanstate.Reason{
+			Code:              code,
+			Count:             count,
+			CountIsLowerBound: false,
+			Examples:          []string{},
+		})
+	}
+	sort.Slice(result.Coverage.Reasons, func(i, j int) bool {
+		return result.Coverage.Reasons[i].Code < result.Coverage.Reasons[j].Code
+	})
+
+	if walkErr != nil && finalErr == nil {
+		finalErr = walkErr
+	}
+
+	return result, finalErr
 }
 
 // toCheckFiles converts walker output to the check package's FileInfo type.

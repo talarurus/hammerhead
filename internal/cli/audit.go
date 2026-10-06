@@ -90,9 +90,9 @@ func runAudit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Run the scan.
-	result, err := eng.Scan(ctx, target, config)
-	if err != nil {
-		return fmt.Errorf("scan failed: %w", err)
+	result, runErr := eng.Scan(ctx, target, config)
+	if result == nil {
+		return fmt.Errorf("scan failed: %w", runErr)
 	}
 
 	// Select and run the reporter.
@@ -122,7 +122,8 @@ func runAudit(cmd *cobra.Command, args []string) error {
 		os.Exit(exitCode)
 	}
 
-	return nil
+	// For testability, return the err if the program doesn't exit.
+	return runErr
 }
 
 // parseFailOn converts the --fail-on flag value to a Severity.

@@ -1,6 +1,7 @@
 package fs_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -165,7 +166,31 @@ func TestSafeWalker_ExcludedDirectories(t *testing.T) {
 	}
 }
 
-func TestSafeWalker_MaxDepth(t *testing.T) {
+func TestSafeWalker_ErrBudgetExhausted(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "file1.txt"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "file2.txt"), []byte("b"), 0644)
+
+	cfg := &fs.WalkerConfig{
+		MaxFiles: 1,
+	}
+
+	walker, err := fs.NewSafeWalker(tmpDir, cfg)
+	if err != nil {
+		t.Fatalf("NewSafeWalker failed: %v", err)
+	}
+
+	_, walkErr := walker.Walk()
+	if walkErr == nil {
+		t.Fatalf("expected walk error, got nil")
+	}
+
+	if !errors.Is(walkErr, fs.ErrBudgetExhausted) {
+		t.Errorf("expected walkErr to be ErrBudgetExhausted, got: %v", walkErr)
+	}
+}
+
+func TestSafeWalker_DepthBudgetExhausted(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Create directory nesting 5 deep: a/b/c/d/e/deep.txt
@@ -174,6 +199,10 @@ func TestSafeWalker_MaxDepth(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(deepPath, "deep.txt"), []byte("deep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Create a shallow file
+	if err := os.WriteFile(filepath.Join(tempDir, "shallow.txt"), []byte("shallow"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -185,15 +214,25 @@ func TestSafeWalker_MaxDepth(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
-	if err != nil {
-		t.Fatalf("Walk failed: %v", err)
+	files, walkErr := walker.Walk()
+	if walkErr == nil {
+		t.Fatalf("Walk succeeded, expected budget exhausted error")
+	}
+	if !errors.Is(walkErr, fs.ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted, got: %v", walkErr)
 	}
 
+	shallowFound := false
 	for _, f := range files {
+		if strings.Contains(f.Path, "shallow.txt") {
+			shallowFound = true
+		}
 		if strings.Contains(f.Path, "deep.txt") {
 			t.Errorf("file beyond max depth was walked: %s", f.Path)
 		}
+	}
+	if !shallowFound {
+		t.Errorf("shallow file was not collected before depth error")
 	}
 
 	skipped := walker.Skipped()
@@ -230,8 +269,8 @@ func TestSafeWalker_MaxFiles(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error when file count limit exceeded, got nil")
 	}
-	if !strings.Contains(err.Error(), "exceeded maximum file count") {
-		t.Errorf("unexpected error message: %v", err)
+	if !errors.Is(err, fs.ErrBudgetExhausted) {
+		t.Errorf("expected ErrBudgetExhausted, got: %v", err)
 	}
 }
 

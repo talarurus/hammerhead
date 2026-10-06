@@ -9,16 +9,16 @@ import (
 
 	"github.com/ammaarrehman/hammerhead/internal/engine"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
-// JSON renders scan results as machine-readable JSON.
+// JSON renders scan results as machine-readable JSON v0.2.
 type JSON struct {
 	Writer     io.Writer
-	Pretty     bool // Use indented formatting
+	Pretty     bool
 	AppVersion string
 }
 
-// NewJSON creates a JSON reporter that writes to stdout with pretty formatting.
 func NewJSON() *JSON {
 	return &JSON{
 		Writer:     os.Stdout,
@@ -27,15 +27,22 @@ func NewJSON() *JSON {
 	}
 }
 
-// jsonReport is the top-level JSON output structure.
 type jsonReport struct {
-	Schema    string            `json:"schema"`
-	Timestamp string            `json:"timestamp"`
-	Version   string            `json:"version"`
-	Repo      jsonRepo          `json:"repository"`
-	Summary   jsonSummary       `json:"summary"`
-	Findings  []finding.Finding `json:"findings"`
-	Errors    []jsonError       `json:"errors,omitempty"`
+	Schema      string                 `json:"schema"`
+	Status      scanstate.Status       `json:"status"`
+	Threshold   jsonThreshold          `json:"threshold"`
+	Repository  jsonRepo               `json:"repository"`
+	Version     string                 `json:"version"`
+	Timestamp   string                 `json:"timestamp"`
+	Summary     jsonSummary            `json:"summary"`
+	Findings    []finding.Finding      `json:"findings"`
+	Coverage    scanstate.Coverage     `json:"coverage"`
+	Diagnostics []scanstate.Diagnostic `json:"diagnostics"`
+}
+
+type jsonThreshold struct {
+	FailOn   string `json:"fail_on"`
+	Exceeded bool   `json:"exceeded"`
 }
 
 type jsonRepo struct {
@@ -43,29 +50,13 @@ type jsonRepo struct {
 }
 
 type jsonSummary struct {
-	TotalFindings         int            `json:"total_findings"`
-	ChecksRun             int            `json:"checks_run"`
-	SecurityRisk          string         `json:"security_risk"`
-	MaxSeverity           string         `json:"max_severity"`
-	SecurityFindingsCount int            `json:"security_findings_count"`
-	HygieneFindingsCount  int            `json:"hygiene_findings_count"`
-	InfoFindingsCount     int            `json:"info_findings_count"`
-	BySeverity            map[string]int `json:"by_severity"`
-	ByClass               map[string]int `json:"by_class"`
-}
-
-type jsonError struct {
-	CheckID string `json:"check_id"`
-	Message string `json:"message"`
+	FindingsCount           int            `json:"findings_count"`
+	ClassCounts             map[string]int `json:"class_counts"`
+	HighestSecuritySeverity string         `json:"highest_security_severity"`
+	ChecksAttempted         int            `json:"checks_attempted"`
 }
 
 func (j *JSON) Report(result *engine.ScanResult) error {
-	counts := finding.CountBySeverity(result.Findings)
-	bySeverity := make(map[string]int, len(counts))
-	for sev, count := range counts {
-		bySeverity[sev.String()] = count
-	}
-
 	classCounts := finding.CountByClass(result.Findings)
 	byClass := make(map[string]int, len(classCounts))
 	for cls, count := range classCounts {
@@ -73,9 +64,9 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 	}
 
 	maxSec, hasSec := finding.MaxSecuritySeverity(result.Findings)
-	secRisk := "none"
+	highestSec := ""
 	if hasSec {
-		secRisk = maxSec.String()
+		highestSec = maxSec.String()
 	}
 
 	ver := j.AppVersion
@@ -83,37 +74,57 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 		ver = "0.1.0-dev"
 	}
 
+	failOnStr := "none"
+	// finding.Severity starts from Info=0 to Critical=4
+	// If failOn is > Critical, it's none.
+	if result.FailOn <= finding.SeverityCritical {
+		failOnStr = result.FailOn.String()
+	}
+
+	exceeded := false
+	if failOnStr != "none" {
+		exceeded = result.ThresholdExceeded(result.FailOn)
+	}
+
+	diags := result.Diagnostics
+	if diags == nil {
+		diags = []scanstate.Diagnostic{}
+	}
+
+	// Initialize maps and slices in Coverage to prevent null in JSON
+	cov := result.Coverage
+	if cov.Reasons == nil {
+		cov.Reasons = []scanstate.Reason{}
+	}
+	if cov.Checks == nil {
+		cov.Checks = []scanstate.CheckCoverage{}
+	}
+
 	report := jsonReport{
-		Schema:    "hammerhead/v0.1",
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Version:   ver,
-		Repo: jsonRepo{
+		Schema: "hammerhead/v0.2",
+		Status: result.Status,
+		Threshold: jsonThreshold{
+			FailOn:   failOnStr,
+			Exceeded: exceeded,
+		},
+		Repository: jsonRepo{
 			Root: result.RepoRoot,
 		},
+		Version:   ver,
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Summary: jsonSummary{
-			TotalFindings:         len(result.Findings),
-			ChecksRun:             result.ChecksRun,
-			SecurityRisk:          secRisk,
-			MaxSeverity:           finding.MaxSeverity(result.Findings).String(),
-			SecurityFindingsCount: classCounts[finding.ClassSecurity],
-			HygieneFindingsCount:  classCounts[finding.ClassHygiene],
-			InfoFindingsCount:     classCounts[finding.ClassInfo],
-			BySeverity:            bySeverity,
-			ByClass:               byClass,
+			FindingsCount:           len(result.Findings),
+			ClassCounts:             byClass,
+			HighestSecuritySeverity: highestSec,
+			ChecksAttempted:         result.ChecksRun,
 		},
-		Findings: result.Findings,
+		Findings:    result.Findings,
+		Coverage:    cov,
+		Diagnostics: diags,
 	}
 
-	// Ensure findings is always an array, never null.
 	if report.Findings == nil {
 		report.Findings = []finding.Finding{}
-	}
-
-	for _, e := range result.Errors {
-		report.Errors = append(report.Errors, jsonError{
-			CheckID: e.CheckID,
-			Message: e.Err.Error(),
-		})
 	}
 
 	var data []byte

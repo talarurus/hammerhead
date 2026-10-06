@@ -10,6 +10,7 @@
 package fs
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,6 +19,9 @@ import (
 	"strings"
 	"unicode"
 )
+
+// ErrBudgetExhausted indicates that traversal exceeded the maximum configured limits.
+var ErrBudgetExhausted = errors.New("traversal budget exhausted")
 
 // Defaults for safety limits.
 const (
@@ -136,6 +140,8 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 	maxFiles := w.config.maxFiles()
 	maxDepth := w.config.maxDepth()
 
+	depthBudgetExceeded := false
+
 	err := filepath.Walk(w.root, func(absPath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			// Permission denied or similar — skip, don't abort.
@@ -196,6 +202,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 				Path:   relPath,
 				Reason: fmt.Sprintf("exceeded max depth (%d)", maxDepth),
 			})
+			depthBudgetExceeded = true
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -257,7 +264,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 
 		// Enforce file count limit.
 		if len(files) >= maxFiles {
-			return fmt.Errorf("exceeded maximum file count (%d)", maxFiles)
+			return fmt.Errorf("%w: maximum file count %d exceeded", ErrBudgetExhausted, maxFiles)
 		}
 
 		files = append(files, WalkedFile{
@@ -273,6 +280,10 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 
 	if err != nil {
 		return files, fmt.Errorf("walking repository: %w", err)
+	}
+
+	if depthBudgetExceeded {
+		return files, fmt.Errorf("%w: maximum depth %d exceeded", ErrBudgetExhausted, maxDepth)
 	}
 
 	return files, nil

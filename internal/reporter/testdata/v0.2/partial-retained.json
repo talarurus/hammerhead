@@ -1,0 +1,70 @@
+{
+  "coverage": {
+    "checks": [],
+    "diagnostic_examples_omitted": null,
+    "findings_retained": 1,
+    "findings_truncated": false,
+    "policy": {
+      "effective_limits": {
+        "max_depth": 50
+      },
+      "exclusions": null
+    },
+    "reasons": [
+      {
+        "code": "check_failure",
+        "count": 1,
+        "count_is_lower_bound": false,
+        "examples": []
+      }
+    ],
+    "traversal": {
+      "discovered_directories": null,
+      "discovered_files": null,
+      "examined_entries": 10,
+      "inventory_complete": true,
+      "root_listing_complete": null
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "check_failure",
+      "safe_message": "check error",
+      "stage": "check"
+    }
+  ],
+  "findings": [
+    {
+      "category": "",
+      "check_ver": "",
+      "class": "security",
+      "confidence": "low",
+      "description": "",
+      "id": "SEC-123",
+      "remediation": "",
+      "rule_id": "SEC-001",
+      "severity": "high",
+      "source": "",
+      "title": "Vuln"
+    }
+  ],
+  "repository": {
+    "root": "/repo"
+  },
+  "schema": "hammerhead/v0.2",
+  "status": "partial",
+  "summary": {
+    "checks_attempted": 1,
+    "class_counts": {
+      "security": 1
+    },
+    "findings_count": 1,
+    "highest_security_severity": "high"
+  },
+  "threshold": {
+    "exceeded": true,
+    "fail_on": "high"
+  },
+  "timestamp": "2026-10-05T00:00:00Z",
+  "version": "0.1.0-dev"
+}

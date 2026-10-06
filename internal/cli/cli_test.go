@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -143,7 +144,7 @@ func TestCLI_AuditJSONOutput(t *testing.T) {
 	var parsed struct {
 		Schema  string `json:"schema"`
 		Summary struct {
-			TotalFindings int `json:"total_findings"`
+			FindingsCount int `json:"findings_count"`
 		} `json:"summary"`
 		Findings []map[string]any `json:"findings"`
 	}
@@ -152,11 +153,11 @@ func TestCLI_AuditJSONOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\nOutput: %s", err, string(out))
 	}
 
-	if parsed.Schema != "hammerhead/v0.1" {
+	if parsed.Schema != "hammerhead/v0.2" {
 		t.Errorf("expected schema hammerhead/v0.1, got %q", parsed.Schema)
 	}
-	if parsed.Summary.TotalFindings < 3 {
-		t.Errorf("expected at least 3 findings in dirty repo, got %d", parsed.Summary.TotalFindings)
+	if parsed.Summary.FindingsCount < 3 {
+		t.Errorf("expected at least 3 findings in dirty repo, got %d", parsed.Summary.FindingsCount)
 	}
 }
 
@@ -232,11 +233,19 @@ func TestCLI_Adversarial_DeepNesting(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Audit should complete safely without stack overflow or hanging
+	// Audit should complete safely and return exit code 2 (partial status) due to depth exhaustion
 	cmd := exec.Command(binaryPath, "audit", tempRepo, "--fail-on", "none")
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("audit failed on deep nesting repo: %v (out: %s)", err, string(out))
+	if err == nil {
+		t.Fatalf("audit succeeded on deep nesting repo, expected exit code 2. Output: %s", out)
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %v", err)
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Fatalf("expected exit code 2 for depth exhaustion, got %d. Output: %s", exitErr.ExitCode(), string(out))
 	}
 }
 
@@ -449,8 +458,8 @@ func TestCLI_AuditMaxFileSizeFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("audit failed: %v", err)
 	}
-	if strings.Contains(string(outDefault), "FILE-002") {
-		t.Errorf("20MB file should not trigger default 50MB threshold")
+	if strings.Contains(string(outDefault), `"id": "FILE-002`) {
+		t.Errorf("20MB file should not trigger default 50MB threshold: %s", outDefault)
 	}
 
 	// 2. With --max-file-size 10MB: FILE-002 finding is generated
@@ -545,5 +554,61 @@ func TestCLI_AuditMaxFileSize_SecretDetectionRegression(t *testing.T) {
 	}
 	if !foundSecret {
 		t.Errorf("expected SEC-001 for large.txt despite exceeding large file threshold")
+	}
+}
+
+func TestCLI_InvalidTarget(t *testing.T) {
+	cmd := exec.Command(binaryPath, "audit", "/nonexistent/path/that/does/not/exist", "--fail-on", "none")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure to exit with code 2, but succeeded. Output: %s", out)
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %v", err)
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Errorf("expected exit code 2, got %d\nOutput: %s", exitErr.ExitCode(), out)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "Error: cannot access") || !strings.Contains(outStr, "no such file or directory") {
+		t.Errorf("expected output to mention no such file or directory, got: %s", outStr)
+	}
+}
+
+func TestCLI_IncompleteFailOnNone(t *testing.T) {
+	// Create a repository with a deeply nested structure that exceeds DefaultMaxDepth (50)
+	tmpDir := t.TempDir()
+
+	currentPath := tmpDir
+	for i := 0; i < 52; i++ {
+		currentPath = filepath.Join(currentPath, fmt.Sprintf("dir%d", i))
+		if err := os.Mkdir(currentPath, 0755); err != nil {
+			t.Fatalf("failed to create nested dir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(currentPath, "file1.txt"), []byte("a"), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	cmd := exec.Command(binaryPath, "audit", tmpDir, "--fail-on", "none")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure to exit with code 2, but succeeded. Output: %s", out)
+	}
+
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected ExitError, got %v", err)
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Errorf("expected exit code 2, got %d\nOutput: %s", exitErr.ExitCode(), out)
+	}
+	outStr := string(out)
+	if !strings.Contains(outStr, "PARTIAL") {
+		t.Errorf("expected output to mention PARTIAL, got: %s", outStr)
+	}
+	if strings.Contains(outStr, "✓ No findings") {
+		t.Errorf("expected output not to mention clean success, got: %s", outStr)
 	}
 }
