@@ -1,0 +1,87 @@
+{
+  "schema": "hammerhead/v0.2",
+  "status": "completed",
+  "threshold": {
+    "fail_on": "high",
+    "exceeded": true
+  },
+  "repository": {
+    "root": "/src/example"
+  },
+  "version": "v0.2.0-dev",
+  "timestamp": "2026-10-05T12:00:00Z",
+  "summary": {
+    "findings_count": 1,
+    "class_counts": {
+      "Security": 1
+    },
+    "highest_security_severity": "high",
+    "checks_attempted": 1
+  },
+  "findings": [
+    {
+      "rule_id": "SEC-001",
+      "class": "Security",
+      "severity": "high",
+      "title": "Supported private-key header detected",
+      "description": "A supported private-key header was found in file content",
+      "path": "config/id_rsa",
+      "evidence": "-----BEGIN RSA PRIVATE KEY-----"
+    }
+  ],
+  "coverage": {
+    "policy": {
+      "exclusions": [".git", "node_modules"],
+      "effective_limits": {
+        "max_depth": 50,
+        "max_retained_inventory_entries": 100000,
+        "directory_batch_entries": 256,
+        "max_names_per_directory": 10000,
+        "max_examined_entries": 100000,
+        "max_native_read_bytes": 10485760,
+        "sec001_max_eligible_bytes": 5242880,
+        "max_aggregate_native_read_bytes": 268435456,
+        "max_findings_retained": 10000,
+        "max_diagnostic_samples": 200,
+        "max_examples_per_reason": 5,
+        "max_diagnostic_path_bytes": 16384,
+        "max_safe_message_bytes": 2048,
+        "max_finding_path_bytes": 16384,
+        "max_evidence_bytes": 2048,
+        "max_title_bytes": 8192,
+        "max_description_bytes": 8192,
+        "max_remediation_bytes": 8192,
+        "overall_scan_timeout_ms": 300000,
+        "git_command_timeout_ms": 10000,
+        "max_git_stdout_bytes": 4194304,
+        "max_git_stderr_bytes": 65536,
+        "git_termination_grace_ms": 1000,
+        "git_cleanup_allowance_ms": 1000,
+        "max_symlink_resolution_steps": 40
+      }
+    },
+    "traversal": {
+      "examined_entries": 100,
+      "discovered_files": 90,
+      "discovered_directories": 10,
+      "inventory_complete": true,
+      "root_listing_complete": true
+    },
+    "reasons": [],
+    "checks": [
+      {
+        "rule_id": "SEC-001",
+        "check_ver": "0.1.0",
+        "status": "completed",
+        "eligible_files": 90,
+        "inspected_files": 90,
+        "read_bytes": 450000,
+        "reason_counts": []
+      }
+    ],
+    "findings_retained": 1,
+    "findings_truncated": false,
+    "diagnostic_examples_omitted": 0
+  },
+  "diagnostics": []
+}
