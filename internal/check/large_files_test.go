@@ -9,9 +9,7 @@ import (
 )
 
 func TestLargeFileCheck(t *testing.T) {
-	c := &check.LargeFileCheck{
-		ThresholdBytes: 10 * 1024 * 1024, // 10 MB for test
-	}
+	c := &check.LargeFileCheck{}
 
 	files := []check.FileInfo{
 		{Path: "small.txt", Size: 1024, IsDir: false},
@@ -23,6 +21,9 @@ func TestLargeFileCheck(t *testing.T) {
 	sc := &check.ScanContext{
 		RepoRoot: "/dummy",
 		Files:    files,
+		Options: check.CheckOptions{
+			LargeFileThresholdBytes: 10 * 1024 * 1024, // 10 MB for test
+		},
 	}
 
 	findings, err := c.Run(context.Background(), sc)

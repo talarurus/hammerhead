@@ -117,7 +117,7 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	rep := &reporter.JSON{Writer: &buf}
+	rep := &reporter.JSON{FailOn: finding.SeverityHigh, Writer: &buf}
 	if err := rep.Report(res); err != nil {
 		t.Fatalf("failed to report JSON: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestTerminalReporter_Clean(t *testing.T) {
 
 func TestJSONReporter_ValidOutput(t *testing.T) {
 	var buf bytes.Buffer
-	jsonRep := &reporter.JSON{
+	jsonRep := &reporter.JSON{FailOn: finding.SeverityHigh,
 		Writer: &buf,
 		Pretty: true,
 	}
@@ -251,7 +251,7 @@ func TestJSONReporter_ValidOutput(t *testing.T) {
 
 func TestJSONReporter_EmptyFindingsArray(t *testing.T) {
 	var buf bytes.Buffer
-	jsonRep := &reporter.JSON{
+	jsonRep := &reporter.JSON{FailOn: finding.SeverityHigh,
 		Writer: &buf,
 		Pretty: false,
 	}
@@ -353,7 +353,7 @@ func TestTerminalReporter_HygieneOnly(t *testing.T) {
 
 func TestJSONReporter_SecurityRiskHygieneOnly(t *testing.T) {
 	var buf bytes.Buffer
-	jsonRep := &reporter.JSON{
+	jsonRep := &reporter.JSON{FailOn: finding.SeverityHigh,
 		Writer: &buf,
 		Pretty: true,
 	}
@@ -402,7 +402,7 @@ func TestJSONReporter_SecurityRiskHygieneOnly(t *testing.T) {
 
 func TestJSON_PartialCoverage(t *testing.T) {
 	var buf bytes.Buffer
-	jsonRep := &reporter.JSON{
+	jsonRep := &reporter.JSON{FailOn: finding.SeverityHigh,
 		Writer: &buf,
 		Pretty: true,
 	}
@@ -412,7 +412,6 @@ func TestJSON_PartialCoverage(t *testing.T) {
 
 	result := &engine.ScanResult{
 		Status: scanstate.StatusPartial,
-		FailOn: finding.SeverityHigh,
 		Diagnostics: []scanstate.Diagnostic{
 			{Stage: "check", Code: scanstate.ReasonCheckFailure, SafeMessage: "some error"},
 		},
@@ -523,7 +522,6 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 	scenarios := map[string]*engine.ScanResult{
 		"completed": {
 			Status:    scanstate.StatusCompleted,
-			FailOn:    finding.SeverityHigh,
 			RepoRoot:  "/repo",
 			ChecksRun: 1,
 			Findings:  []finding.Finding{},
@@ -542,7 +540,6 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 		},
 		"partial-zero": {
 			Status:    scanstate.StatusPartial,
-			FailOn:    finding.SeverityHigh,
 			RepoRoot:  "/repo",
 			ChecksRun: 1,
 			Findings:  []finding.Finding{},
@@ -564,7 +561,6 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 		},
 		"partial-retained": {
 			Status:    scanstate.StatusPartial,
-			FailOn:    finding.SeverityHigh,
 			RepoRoot:  "/repo",
 			ChecksRun: 1,
 			Findings: []finding.Finding{
@@ -591,7 +587,6 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 		},
 		"cancelled-retained": {
 			Status:    scanstate.StatusCancelled,
-			FailOn:    finding.SeverityHigh,
 			RepoRoot:  "/repo",
 			ChecksRun: 1,
 			Findings: []finding.Finding{
@@ -621,7 +616,7 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 	for name, res := range scenarios {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
-			jsonRep := reporter.JSON{Writer: &buf, Pretty: true}
+			jsonRep := reporter.JSON{FailOn: finding.SeverityHigh, Writer: &buf, Pretty: true}
 			if err := jsonRep.Report(res); err != nil {
 				t.Fatalf("failed to report: %v", err)
 			}

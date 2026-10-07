@@ -15,39 +15,6 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
-func TestScanResult_ExitPrecedence(t *testing.T) {
-	tests := []struct {
-		name     string
-		status   scanstate.Status
-		failOn   finding.Severity
-		findings []finding.Finding
-		wantExit int
-	}{
-		{"completed + no threshold", scanstate.StatusCompleted, finding.SeverityHigh, nil, 0},
-		{"completed + threshold", scanstate.StatusCompleted, finding.SeverityHigh, []finding.Finding{{Severity: finding.SeverityHigh, Class: finding.ClassSecurity}}, 1},
-		{"completed + threshold not exceeded", scanstate.StatusCompleted, finding.SeverityCritical, []finding.Finding{{Severity: finding.SeverityHigh, Class: finding.ClassSecurity}}, 0},
-		{"partial", scanstate.StatusPartial, finding.SeverityHigh, nil, 2},
-		{"failed", scanstate.StatusFailed, finding.SeverityHigh, nil, 2},
-		{"cancelled", scanstate.StatusCancelled, finding.SeverityHigh, nil, 2},
-		{"partial + threshold", scanstate.StatusPartial, finding.SeverityHigh, []finding.Finding{{Severity: finding.SeverityHigh, Class: finding.ClassSecurity}}, 2},
-		{"none does not mask status 2", scanstate.StatusPartial, finding.SeverityCritical + 1, nil, 2},
-		{"invalid/unset status cannot produce 0", scanstate.Status(""), finding.SeverityHigh, nil, 2},
-		{"Hygiene/Info do not cause finding exit 1", scanstate.StatusCompleted, finding.SeverityLow, []finding.Finding{{Severity: finding.SeverityHigh, Class: finding.ClassHygiene}}, 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			res := &engine.ScanResult{
-				Status:   tt.status,
-				Findings: tt.findings,
-			}
-			if got := res.ExitCode(tt.failOn); got != tt.wantExit {
-				t.Errorf("ExitCode() = %v, want %v", got, tt.wantExit)
-			}
-		})
-	}
-}
-
 // Check stub
 type mockCheck struct {
 	meta     check.Meta

@@ -43,9 +43,6 @@ func TestEngine_ScanCleanRepo(t *testing.T) {
 	if len(result.Findings) != 0 {
 		t.Errorf("clean repo had unexpected findings: %+v", result.Findings)
 	}
-	if code := result.ExitCode(finding.SeverityHigh); code != 0 {
-		t.Errorf("expected exit code 0 for clean repo, got %d", code)
-	}
 }
 
 func TestEngine_ScanDirtyRepo(t *testing.T) {
@@ -72,9 +69,6 @@ func TestEngine_ScanDirtyRepo(t *testing.T) {
 	}
 
 	// Threshold High should fail due to id_rsa
-	if code := result.ExitCode(finding.SeverityHigh); code != 1 {
-		t.Errorf("expected exit code 1 for fail-on high with id_rsa, got %d", code)
-	}
 
 	// Threshold Critical should pass if no critical findings exist
 	hasCritical := false
@@ -84,15 +78,9 @@ func TestEngine_ScanDirtyRepo(t *testing.T) {
 		}
 	}
 	if !hasCritical {
-		if code := result.ExitCode(finding.SeverityCritical); code != 0 {
-			t.Errorf("expected exit code 0 for fail-on critical without critical findings, got %d", code)
-		}
 	}
 
 	// Threshold above critical (fail-on none) must always be 0
-	if code := result.ExitCode(finding.SeverityCritical + 1); code != 0 {
-		t.Errorf("expected exit code 0 for fail-on none, got %d", code)
-	}
 }
 
 func TestEngine_ContextCancellation(t *testing.T) {
@@ -157,7 +145,6 @@ func TestEngine_MaxFileSizeConflation(t *testing.T) {
 
 	// Simulate `--max-file-size 1MB` and verify separation from SecurityReadLimit
 	config := &engine.ScanConfig{
-		FailOn:             finding.SeverityHigh,
 		LargeFileThreshold: 1024 * 1024,     // 1MB
 		SecurityReadLimit:  5 * 1024 * 1024, // 5MB
 	}

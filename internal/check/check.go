@@ -70,4 +70,14 @@ type ScanContext struct {
 	// It enforces size limits and returns an error for files exceeding
 	// the configured maximum. Callers should handle errors gracefully.
 	ReadFile func(relPath string) ([]byte, error)
+
+	// Options contains immutable per-run check configuration.
+	Options CheckOptions
+}
+
+// CheckOptions holds immutable configuration values for checks during a single scan.
+type CheckOptions struct {
+	// LargeFileThresholdBytes is the file size limit for FILE-002.
+	// If 0, the check's default threshold is used.
+	LargeFileThresholdBytes int64
 }

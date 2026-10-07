@@ -14,12 +14,7 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
-// ScanConfig holds configuration for a scan operation.
 type ScanConfig struct {
-	// FailOn is the minimum severity that causes a non-zero exit code.
-	// Findings below this threshold are reported but do not affect the exit code.
-	FailOn finding.Severity
-
 	// ExcludePatterns are glob or path patterns to exclude from scanning.
 	ExcludePatterns []string
 
@@ -45,16 +40,28 @@ func New(registry *Registry) *Engine {
 
 // Scan runs all registered checks against the target directory.
 func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig) (*ScanResult, error) {
-	if config == nil {
-		config = &ScanConfig{
-			FailOn: finding.SeverityHigh,
+	var clonedConfig ScanConfig
+	if config != nil {
+		clonedConfig.LargeFileThreshold = config.LargeFileThreshold
+		clonedConfig.SecurityReadLimit = config.SecurityReadLimit
+		if config.ExcludePatterns != nil {
+			clonedConfig.ExcludePatterns = make([]string, len(config.ExcludePatterns))
+			copy(clonedConfig.ExcludePatterns, config.ExcludePatterns)
+		}
+		if config.Walker != nil {
+			w := *config.Walker
+			if w.ExcludePatterns != nil {
+				w.ExcludePatterns = make([]string, len(config.Walker.ExcludePatterns))
+				copy(w.ExcludePatterns, config.Walker.ExcludePatterns)
+			}
+			clonedConfig.Walker = &w
 		}
 	}
+	config = &clonedConfig
 
 	result := &ScanResult{
 		Status:   scanstate.StatusCompleted,
 		RepoRoot: targetDir,
-		FailOn:   config.FailOn,
 	}
 
 	// Precedence for status:
@@ -109,9 +116,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	walkerCfg := config.Walker
 	if walkerCfg == nil {
 		walkerCfg = &fs.WalkerConfig{}
-	} else {
-		cpy := *walkerCfg
-		walkerCfg = &cpy
 	}
 	if len(config.ExcludePatterns) > 0 {
 		walkerCfg.ExcludePatterns = append(walkerCfg.ExcludePatterns, config.ExcludePatterns...)
@@ -156,6 +160,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			Branch: gitInfo.Branch,
 		},
 		ReadFile: walker.SafeReadFile,
+		Options: check.CheckOptions{
+			LargeFileThresholdBytes: config.LargeFileThreshold,
+		},
 	}
 
 	// Step 4: Run all checks.
@@ -175,10 +182,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			chkCov.CheckVer = &vStr
 		}
 
-		// Wire dynamic thresholds if configured
-		if lfc, ok := c.(*check.LargeFileCheck); ok && config.LargeFileThreshold > 0 {
-			lfc.ThresholdBytes = config.LargeFileThreshold
-		}
+		// Option wiring removed from here; it's passed via CheckOptions in ScanContext.
 
 		// Check context cancellation before each check.
 		if ctx.Err() != nil {

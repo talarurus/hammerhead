@@ -1,15 +1,12 @@
-// Hammerhead is a developer-security CLI for repository inspection.
-//
-// Usage:
-//
-//	hammerhead audit [path]     Run security checks against a repository
-//	hammerhead version          Print version information
 package main
 
 import (
+	"context"
+	"os"
+
 	"github.com/ammaarrehman/hammerhead/internal/cli"
 )
 
 func main() {
-	cli.Execute()
+	os.Exit(cli.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
 }

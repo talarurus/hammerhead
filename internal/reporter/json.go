@@ -17,6 +17,8 @@ type JSON struct {
 	Writer     io.Writer
 	Pretty     bool
 	AppVersion string
+	FailOn     finding.Severity
+	FailOnNone bool
 }
 
 func NewJSON() *JSON {
@@ -24,6 +26,7 @@ func NewJSON() *JSON {
 		Writer:     os.Stdout,
 		Pretty:     true,
 		AppVersion: "0.1.0-dev",
+		FailOn:     finding.SeverityHigh,
 	}
 }
 
@@ -75,15 +78,13 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 	}
 
 	failOnStr := "none"
-	// finding.Severity starts from Info=0 to Critical=4
-	// If failOn is > Critical, it's none.
-	if result.FailOn <= finding.SeverityCritical {
-		failOnStr = result.FailOn.String()
+	if !j.FailOnNone {
+		failOnStr = j.FailOn.String()
 	}
 
 	exceeded := false
-	if failOnStr != "none" {
-		exceeded = result.ThresholdExceeded(result.FailOn)
+	if !j.FailOnNone {
+		exceeded = result.ThresholdExceeded(j.FailOn)
 	}
 
 	diags := result.Diagnostics

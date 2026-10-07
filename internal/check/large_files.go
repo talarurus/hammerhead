@@ -25,15 +25,6 @@ const (
 // This check is deterministic and memory-safe: it inspects FileInfo.Size
 // recorded during traversal and never reads file contents into memory.
 type LargeFileCheck struct {
-	// ThresholdBytes is the file size limit in bytes. If 0, DefaultLargeFileThreshold is used.
-	ThresholdBytes int64
-}
-
-func (c *LargeFileCheck) threshold() int64 {
-	if c.ThresholdBytes > 0 {
-		return c.ThresholdBytes
-	}
-	return DefaultLargeFileThreshold
 }
 
 func (c *LargeFileCheck) Meta() Meta {
@@ -47,7 +38,10 @@ func (c *LargeFileCheck) Meta() Meta {
 }
 
 func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
-	threshold := c.threshold()
+	threshold := DefaultLargeFileThreshold
+	if sc.Options.LargeFileThresholdBytes > 0 {
+		threshold = sc.Options.LargeFileThresholdBytes
+	}
 	thresholdMB := float64(threshold) / (1024 * 1024)
 
 	var findings []finding.Finding

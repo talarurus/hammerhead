@@ -52,3 +52,46 @@ func TestJSON_Escaping(t *testing.T) {
 		t.Errorf("JSON output contains unescaped quotes")
 	}
 }
+
+func TestJSON_FailOnNone(t *testing.T) {
+	var buf bytes.Buffer
+	rep := reporter.NewJSON()
+	rep.Writer = &buf
+	rep.Pretty = false
+	rep.FailOnNone = true // simulates --fail-on none
+
+	res := &engine.ScanResult{
+		RepoRoot: ".",
+		Findings: []finding.Finding{
+			{
+				ID:       "123",
+				Severity: finding.SeverityCritical,
+				Class:    finding.ClassSecurity,
+			},
+		},
+	}
+
+	if err := rep.Report(res); err != nil {
+		t.Fatalf("JSON Report failed: %v", err)
+	}
+
+	out := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("Produced invalid JSON: %v", err)
+	}
+
+	// We expect "fail_on": "none" and "exceeded": false in the threshold object
+	val, ok := parsed["threshold"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("Missing or invalid 'threshold' object")
+	}
+
+	if failOn, _ := val["fail_on"].(string); failOn != "none" {
+		t.Errorf("expected fail_on = 'none', got %q", failOn)
+	}
+
+	if exceeded, _ := val["exceeded"].(bool); exceeded != false {
+		t.Errorf("expected exceeded = false with fail-on none, got %v", exceeded)
+	}
+}

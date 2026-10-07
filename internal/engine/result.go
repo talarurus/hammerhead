@@ -20,9 +20,6 @@ type ScanResult struct {
 	// ChecksRun is the number of checks that were executed.
 	ChecksRun int
 
-	// FailOn is the configured minimum severity that triggers a finding-based failure.
-	FailOn finding.Severity
-
 	// Diagnostics contains partial/failure conditions.
 	Diagnostics []scanstate.Diagnostic
 
@@ -42,18 +39,4 @@ func (r *ScanResult) ThresholdExceeded(failOn finding.Severity) bool {
 		}
 	}
 	return false
-}
-
-// ExitCode returns the operational exit code based on status and finding threshold.
-//   - 0: completed successfully, and threshold not exceeded
-//   - 1: completed successfully, but threshold exceeded
-//   - 2: partial, failed, cancelled, or invalid configuration
-func (r *ScanResult) ExitCode(failOn finding.Severity) int {
-	if r.Status != scanstate.StatusCompleted {
-		return 2
-	}
-	if r.ThresholdExceeded(failOn) {
-		return 1
-	}
-	return 0
 }
