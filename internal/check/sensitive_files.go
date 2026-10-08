@@ -182,9 +182,7 @@ func (c *SensitiveFileCheck) Meta() Meta {
 	}
 }
 
-func (c *SensitiveFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
-	var findings []finding.Finding
-
+func (c *SensitiveFileCheck) Run(_ context.Context, sc *ScanContext) error {
 	for _, file := range sc.Files {
 		if file.IsDir {
 			continue
@@ -195,7 +193,7 @@ func (c *SensitiveFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 
 		for _, pattern := range sensitivePatterns {
 			if pattern.match(name, lower) {
-				findings = append(findings, finding.Finding{
+				err := sc.Emit(finding.Finding{
 					ID:          finding.GenerateID(sensitiveCheckID, file.Path),
 					RuleID:      sensitiveCheckID,
 					Class:       finding.ClassSecurity,
@@ -210,12 +208,15 @@ func (c *SensitiveFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 					Source:      "hammerhead",
 					CheckVer:    sensitiveCheckVersion,
 				})
+				if err != nil {
+					return err
+				}
 				break // One finding per file; first matching pattern wins.
 			}
 		}
 	}
 
-	return findings, nil
+	return nil
 }
 
 // === Matching helpers ===

@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -26,7 +25,7 @@ func TestSecretPatternCheck_PEMKey(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -69,7 +68,7 @@ func TestSecretPatternCheck_AWSAccessKeyOnly(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -101,7 +100,7 @@ func TestSecretPatternCheck_AWSCredentialPair(t *testing.T) {
 	c := &check.SecretPatternCheck{}
 
 	mockKey := "AKIA" + "1234567890ABCDEF"
-	mockSecret := "wJalrXUtnFEMI/K7MDENG/bPxRfiCY1234567890" // 40 chars
+	mockSecret := "wJalrXUtn" + "FEMI/K7MDENG/bPx" + "RfiCY1234567890" // 40 chars
 	content := "AWS_REGION=us-east-1\nAWS_ACCESS_KEY_ID=" + mockKey + "\nAWS_SECRET_ACCESS_KEY=" + mockSecret + "\n"
 
 	sc := &check.ScanContext{
@@ -114,7 +113,7 @@ func TestSecretPatternCheck_AWSCredentialPair(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -160,7 +159,7 @@ func TestSecretPatternCheck_PublicCertNotFlagged(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -188,7 +187,7 @@ AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -220,12 +219,77 @@ func main() {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
 
 	if len(findings) != 0 {
 		t.Errorf("expected 0 findings for benign code, got %d", len(findings))
+	}
+}
+
+func TestSecretPatternCheck_WordBoundaryPreserved(t *testing.T) {
+	c := &check.SecretPatternCheck{}
+
+	content := "AWS_ACCESS_KEY_ID=A" + "AKIA" + "1234567890ABCDEF\n" +
+		"ANOTHER_VAR=X" + "AKIA" + "1234567890ABCDEF then valid " + "AKIA" + "0987654321ABCDEF\n" +
+		"MULTI=" + "AKIA" + "1111111111ABCDEF, " + "AKIA" + "2222222222ABCDEF\n" +
+		"DOC_KEY=" + "AKIA" + "IOSFODNN7EXAMPLE\n"
+
+	sc := &check.ScanContext{
+		RepoRoot: "/dummy",
+		Files: []check.FileInfo{
+			{Path: "boundaries.env", Size: int64(len(content)), IsDir: false},
+		},
+		ReadFile: func(p string) ([]byte, error) {
+			return []byte(content), nil
+		},
+	}
+
+	findings, err := runCheckForTest(c, sc)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(findings) != 3 {
+		t.Fatalf("expected 3 findings, got %d", len(findings))
+	}
+
+	if findings[0].Line != 2 || !strings.Contains(findings[0].Evidence, "AKIA****************") {
+		t.Errorf("finding 1 mismatch: line %d, evidence %s", findings[0].Line, findings[0].Evidence)
+	}
+	if findings[1].Line != 3 || !strings.Contains(findings[1].Evidence, "AKIA****************") {
+		t.Errorf("finding 2 mismatch: line %d, evidence %s", findings[1].Line, findings[1].Evidence)
+	}
+	if findings[2].Line != 3 || !strings.Contains(findings[2].Evidence, "AKIA****************") {
+		t.Errorf("finding 3 mismatch: line %d, evidence %s", findings[2].Line, findings[2].Evidence)
+	}
+}
+
+func TestSecretPatternCheck_FirstPEMHeaderPerFile(t *testing.T) {
+	c := &check.SecretPatternCheck{}
+
+	header := "-----" + "BEGIN RSA PRIVATE KEY-----"
+	footer := "-----" + "END RSA PRIVATE KEY-----"
+	content := header + "\nDATA1\n" + footer + "\n" + header + "\nDATA2\n" + footer + "\n"
+
+	sc := &check.ScanContext{
+		RepoRoot: "/dummy",
+		Files: []check.FileInfo{
+			{Path: "config/keys.pem", Size: int64(len(content)), IsDir: false},
+		},
+		ReadFile: func(p string) ([]byte, error) {
+			return []byte(content), nil
+		},
+	}
+
+	findings, err := runCheckForTest(c, sc)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 finding for PEM key per file, got %d", len(findings))
 	}
 }

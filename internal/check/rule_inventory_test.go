@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -340,7 +339,7 @@ func TestCurrentRuleVariants(t *testing.T) {
 
 			sc := tc.setupSC(t)
 			c := tc.checkFunc()
-			findings, err := c.Run(context.Background(), sc)
+			findings, err := runCheckForTest(c, sc)
 			if err != nil {
 				t.Fatalf("Unexpected check error: %v", err)
 			}
@@ -352,27 +351,27 @@ func TestCurrentRuleVariants(t *testing.T) {
 	t.Run("benign_exemptions", func(t *testing.T) {
 		// FILE-001 exemptions
 		sc := scWithFile(".env.example")
-		f, _ := (&check.SensitiveFileCheck{}).Run(context.Background(), sc)
+		f, _ := runCheckForTest(&check.SensitiveFileCheck{}, sc)
 		if len(f) != 0 {
 			t.Errorf("Expected 0 findings for .env.example, got %d", len(f))
 		}
 
 		sc = scWithFile("secrets.go")
-		f, _ = (&check.SensitiveFileCheck{}).Run(context.Background(), sc)
+		f, _ = runCheckForTest(&check.SensitiveFileCheck{}, sc)
 		if len(f) != 0 {
 			t.Errorf("Expected 0 findings for secrets.go, got %d", len(f))
 		}
 
 		// SEC-001 exemptions
-		sc = scWithFileContent("test.txt", "AKIAIOSFODNN7EXAMPLE\naws_secret_access_key=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n")
-		f, _ = (&check.SecretPatternCheck{}).Run(context.Background(), sc)
+		sc = scWithFileContent("test.txt", "AKIAIOSFODNN7EXAMPLE\naws_secret_access_key="+"wJalrXUtn"+"FEMI/K7MDENG/bPx"+"RfiCYEXAMPLEKEY\n")
+		f, _ = runCheckForTest(&check.SecretPatternCheck{}, sc)
 		if len(f) != 0 {
 			t.Errorf("Expected 0 findings for AWS documentation dummy keys, got %d", len(f))
 		}
 
 		// Priority behavior: my_secret_key.pem should trigger pem-file (high priority), not secret-name.
 		sc = scWithFile("my_secret_key.pem")
-		f, _ = (&check.SensitiveFileCheck{}).Run(context.Background(), sc)
+		f, _ = runCheckForTest(&check.SensitiveFileCheck{}, sc)
 		if len(f) != 1 {
 			t.Fatalf("Expected 1 finding for my_secret_key.pem, got %d", len(f))
 		}

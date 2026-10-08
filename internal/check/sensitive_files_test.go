@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
@@ -31,7 +30,7 @@ func TestSensitiveFileCheck_Detection(t *testing.T) {
 		Files:    files,
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

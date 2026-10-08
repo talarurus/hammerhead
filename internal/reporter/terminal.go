@@ -120,7 +120,7 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 	hygCount := classCounts[finding.ClassHygiene]
 	infoCount := classCounts[finding.ClassInfo]
 
-	maxSec, hasSec := finding.MaxSecuritySeverity(result.Findings)
+	maxSec, hasSec := result.HighestObservedSecuritySeverity()
 
 	t.writeln(w, "")
 	fmt.Fprintf(w, "  Security risk:          ")

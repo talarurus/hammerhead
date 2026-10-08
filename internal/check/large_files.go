@@ -37,14 +37,12 @@ func (c *LargeFileCheck) Meta() Meta {
 	}
 }
 
-func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
+func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) error {
 	threshold := DefaultLargeFileThreshold
 	if sc.Options.LargeFileThresholdBytes > 0 {
 		threshold = sc.Options.LargeFileThresholdBytes
 	}
 	thresholdMB := float64(threshold) / (1024 * 1024)
-
-	var findings []finding.Finding
 
 	for _, file := range sc.Files {
 		if file.IsDir {
@@ -55,7 +53,7 @@ func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Find
 			fileSizeMB := float64(file.Size) / (1024 * 1024)
 			evidence := fmt.Sprintf("Size: %.2f MB (threshold: %.0f MB)", fileSizeMB, thresholdMB)
 
-			findings = append(findings, finding.Finding{
+			err := sc.Emit(finding.Finding{
 				ID:          finding.GenerateID(largeFileCheckID, file.Path),
 				RuleID:      largeFileCheckID,
 				Class:       finding.ClassHygiene,
@@ -70,8 +68,11 @@ func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Find
 				Source:      "hammerhead",
 				CheckVer:    largeFileCheckVersion,
 			})
+			if err != nil {
+				return err
+			}
 		}
 	}
 
-	return findings, nil
+	return nil
 }

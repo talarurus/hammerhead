@@ -3,12 +3,14 @@ package check
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 const (
@@ -57,9 +59,85 @@ func (c *SecretPatternCheck) Meta() Meta {
 	}
 }
 
-func (c *SecretPatternCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
-	var findings []finding.Finding
+func iterateAWSAccessKeys(ctx context.Context, data []byte, visit func(match awsMatch) error) error {
+	hasSecretKeyChecked := false
+	hasSecretKey := false
 
+	keyOffset := 0
+	for keyOffset < len(data) {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		m := awsAccessKeyRegex.FindSubmatchIndex(data[keyOffset:])
+		if m == nil {
+			break
+		}
+
+		matchStart := m[0] + keyOffset
+		matchEnd := m[1] + keyOffset
+		subStart := m[2] + keyOffset
+		subEnd := m[3] + keyOffset
+
+		// Check false \b at the start of the slice
+		if m[0] == 0 && keyOffset > 0 {
+			if isWordChar(data[keyOffset-1]) {
+				// False positive due to slice boundary acting as start of string
+				keyOffset = matchStart + 1
+				continue
+			}
+		}
+
+		keyID := string(data[subStart:subEnd])
+
+		// Exempt AWS's official documentation dummy key
+		if keyID == awsDocKeyExample {
+			keyOffset = matchEnd
+			continue
+		}
+
+		if !hasSecretKeyChecked {
+			hasSecretKeyChecked = true
+			secOffset := 0
+			for secOffset < len(data) {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				sm := awsSecretKeyRegex.FindSubmatchIndex(data[secOffset:])
+				if sm == nil {
+					break
+				}
+				secVal := string(data[sm[2]+secOffset : sm[3]+secOffset])
+				if secVal != awsDocSecretExample {
+					hasSecretKey = true
+					break
+				}
+				secOffset += sm[1]
+			}
+		}
+
+		if err := visit(awsMatch{
+			keyID:      keyID,
+			matchStart: matchStart,
+			matchEnd:   matchEnd,
+			hasSecret:  hasSecretKey,
+		}); err != nil {
+			return err
+		}
+
+		keyOffset = matchEnd
+	}
+	return nil
+}
+
+type awsMatch struct {
+	keyID      string
+	matchStart int
+	matchEnd   int
+	hasSecret  bool
+}
+
+func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 	for _, file := range sc.Files {
 		if file.IsDir {
 			continue
@@ -71,25 +149,35 @@ func (c *SecretPatternCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 		}
 
 		// Check if file is binary before reading
-		if file.AbsPath != "" {
-			isBin, err := fs.IsBinaryFile(file.AbsPath)
-			if err == nil && isBin {
-				continue
-			}
+		isBin, err := sc.IsBinaryFile(file.Path)
+		if err == nil && isBin {
+			continue
+		}
+		if errors.Is(err, fs.ErrBudgetExhausted) {
+			return scanstate.ErrBudgetExhausted
 		}
 
 		data, err := sc.ReadFile(file.Path)
 		if err != nil {
+			if errors.Is(err, fs.ErrBudgetExhausted) {
+				return scanstate.ErrBudgetExhausted
+			}
 			// Skip unreadable files without failing the entire audit
 			continue
 		}
 
-		// Scan 1: PEM Private Key Header
+		// Scan 1: PEM Private Key Header (FIRST supported key per file)
 		if loc := pemPrivateKeyRegex.FindIndex(data); loc != nil {
-			lineNum := bytes.Count(data[:loc[0]], []byte("\n")) + 1
-			matchedHeader := string(data[loc[0]:loc[1]])
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			matchStart := loc[0]
+			matchEnd := loc[1]
 
-			findings = append(findings, finding.Finding{
+			lineNum := bytes.Count(data[:matchStart], []byte("\n")) + 1
+			matchedHeader := string(data[matchStart:matchEnd])
+
+			err = sc.Emit(finding.Finding{
 				ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d", file.Path, lineNum)),
 				RuleID:      secretCheckID,
 				Class:       finding.ClassSecurity,
@@ -105,73 +193,62 @@ func (c *SecretPatternCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 				Source:      "hammerhead",
 				CheckVer:    secretCheckVersion,
 			})
+			if err != nil {
+				return err
+			}
 		}
 
 		// Scan 2: AWS Access Key ID & Credential Pairs
-		keyMatches := awsAccessKeyRegex.FindAllSubmatchIndex(data, -1)
-		if len(keyMatches) > 0 {
-			// Check if file also contains an AWS Secret Access Key
-			hasSecretKey := false
-			secretMatches := awsSecretKeyRegex.FindAllSubmatchIndex(data, -1)
-			for _, sm := range secretMatches {
-				secVal := string(data[sm[2]:sm[3]])
-				if secVal != awsDocSecretExample {
-					hasSecretKey = true
-					break
-				}
+		err = iterateAWSAccessKeys(ctx, data, func(m awsMatch) error {
+			lineNum := bytes.Count(data[:m.matchStart], []byte("\n")) + 1
+			redactedKey := m.keyID[:4] + strings.Repeat("*", len(m.keyID)-4)
+
+			if m.hasSecret {
+				// Case B: Access Key ID AND Secret Key present in the same file -> CRITICAL
+				return sc.Emit(finding.Finding{
+					ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d:pair", file.Path, lineNum)),
+					RuleID:      secretCheckID,
+					Class:       finding.ClassSecurity,
+					Category:    finding.CategorySecrets,
+					Severity:    finding.SeverityCritical,
+					Confidence:  finding.ConfidenceHigh,
+					Title:       "AWS credential pair (Access Key and Secret Key) committed to repository",
+					Description: fmt.Sprintf("Both an AWS Access Key ID ('%s...') and a corresponding Secret Access Key assignment were identified in this file. Active credential pairs allow immediate programmatic authentication to AWS resources.", m.keyID[:4]),
+					Remediation: "Immediately deactivate and delete this Access Key pair in the AWS IAM Console. Rotate any associated credentials and inspect AWS CloudTrail logs for unauthorized API activity.",
+					Path:        file.Path,
+					Line:        lineNum,
+					Evidence:    fmt.Sprintf("%s [SECRET KEY REDACTED]", redactedKey),
+					Source:      "hammerhead",
+					CheckVer:    secretCheckVersion,
+				})
 			}
 
-			for _, m := range keyMatches {
-				keyID := string(data[m[2]:m[3]])
-
-				// Exempt AWS's official documentation dummy key
-				if keyID == awsDocKeyExample {
-					continue
-				}
-
-				lineNum := bytes.Count(data[:m[2]], []byte("\n")) + 1
-				redactedKey := keyID[:4] + strings.Repeat("*", len(keyID)-4)
-
-				if hasSecretKey {
-					// Case B: Access Key ID AND Secret Key present in the same file -> CRITICAL
-					findings = append(findings, finding.Finding{
-						ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d:pair", file.Path, lineNum)),
-						RuleID:      secretCheckID,
-						Class:       finding.ClassSecurity,
-						Category:    finding.CategorySecrets,
-						Severity:    finding.SeverityCritical,
-						Confidence:  finding.ConfidenceHigh,
-						Title:       "AWS credential pair (Access Key and Secret Key) committed to repository",
-						Description: fmt.Sprintf("Both an AWS Access Key ID ('%s...') and a corresponding Secret Access Key assignment were identified in this file. Active credential pairs allow immediate programmatic authentication to AWS resources.", keyID[:4]),
-						Remediation: "Immediately deactivate and delete this Access Key pair in the AWS IAM Console. Rotate any associated credentials and inspect AWS CloudTrail logs for unauthorized API activity.",
-						Path:        file.Path,
-						Line:        lineNum,
-						Evidence:    fmt.Sprintf("%s [SECRET KEY REDACTED]", redactedKey),
-						Source:      "hammerhead",
-						CheckVer:    secretCheckVersion,
-					})
-				} else {
-					// Case A: Access Key ID alone without verified secret key -> MEDIUM
-					findings = append(findings, finding.Finding{
-						ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d:id", file.Path, lineNum)),
-						RuleID:      secretCheckID,
-						Class:       finding.ClassSecurity,
-						Category:    finding.CategorySecrets,
-						Severity:    finding.SeverityMedium,
-						Confidence:  finding.ConfidenceMedium,
-						Title:       "Potential AWS Access Key ID committed to repository",
-						Description: fmt.Sprintf("An AWS Access Key ID ('%s...') was identified in file content. This is a credential identifier and does not by itself grant access without the secret key. Hammerhead did not establish that a corresponding secret key is present in this file.", keyID[:4]),
-						Remediation: "Verify whether this Access Key ID is active in the AWS IAM Console. If in use, ensure secret credentials are provided securely via environment variables or a secrets manager (e.g. AWS Secrets Manager or Vault) rather than committed files.",
-						Path:        file.Path,
-						Line:        lineNum,
-						Evidence:    redactedKey,
-						Source:      "hammerhead",
-						CheckVer:    secretCheckVersion,
-					})
-				}
-			}
+			// Case A: Access Key ID alone without verified secret key -> MEDIUM
+			return sc.Emit(finding.Finding{
+				ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d:id", file.Path, lineNum)),
+				RuleID:      secretCheckID,
+				Class:       finding.ClassSecurity,
+				Category:    finding.CategorySecrets,
+				Severity:    finding.SeverityMedium,
+				Confidence:  finding.ConfidenceMedium,
+				Title:       "Potential AWS Access Key ID committed to repository",
+				Description: fmt.Sprintf("An AWS Access Key ID ('%s...') was identified in file content. This is a credential identifier and does not by itself grant access without the secret key. Hammerhead did not establish that a corresponding secret key is present in this file.", m.keyID[:4]),
+				Remediation: "Verify whether this Access Key ID is active in the AWS IAM Console. If in use, ensure secret credentials are provided securely via environment variables or a secrets manager (e.g. AWS Secrets Manager or Vault) rather than committed files.",
+				Path:        file.Path,
+				Line:        lineNum,
+				Evidence:    redactedKey,
+				Source:      "hammerhead",
+				CheckVer:    secretCheckVersion,
+			})
+		})
+		if err != nil {
+			return err
 		}
 	}
 
-	return findings, nil
+	return nil
+}
+
+func isWordChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
 }

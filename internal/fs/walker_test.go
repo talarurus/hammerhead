@@ -2,6 +2,7 @@ package fs_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -323,12 +324,17 @@ func TestSafeWalker_SafeReadFile(t *testing.T) {
 func TestIsBinaryFile(t *testing.T) {
 	tempDir := t.TempDir()
 
+	walker, err := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{MaxAggregateReadBytes: 1024 * 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Text file
 	textFile := filepath.Join(tempDir, "text.txt")
 	if err := os.WriteFile(textFile, []byte("Hello plain text world\nThis is text."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	isBin, err := fs.IsBinaryFile(textFile)
+	isBin, err := walker.IsBinaryFile("text.txt")
 	if err != nil {
 		t.Fatalf("IsBinaryFile failed: %v", err)
 	}
@@ -342,7 +348,7 @@ func TestIsBinaryFile(t *testing.T) {
 	if err := os.WriteFile(binFile, binContent, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	isBin, err = fs.IsBinaryFile(binFile)
+	isBin, err = walker.IsBinaryFile("binary.bin")
 	if err != nil {
 		t.Fatalf("IsBinaryFile failed: %v", err)
 	}
@@ -355,7 +361,7 @@ func TestIsBinaryFile(t *testing.T) {
 	if err := os.WriteFile(emptyFile, []byte{}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	isBin, err = fs.IsBinaryFile(emptyFile)
+	isBin, err = walker.IsBinaryFile("empty.txt")
 	if err != nil {
 		t.Fatalf("IsBinaryFile failed: %v", err)
 	}
@@ -674,5 +680,166 @@ func TestCheckFilename(t *testing.T) {
 				t.Errorf("CheckFilename(%q) = %q; want %q", tc.filename, got, tc.expected)
 			}
 		})
+	}
+}
+
+func TestSafeWalker_SkippedBudget(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	for i := 0; i < 5; i++ {
+		err := os.Mkdir(filepath.Join(tmpDir, fmt.Sprintf("dir%d", i)), 0755)
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Mkdir(filepath.Join(tmpDir, fmt.Sprintf("dir%d", i), "sub"), 0755)
+	}
+
+	// Set MaxDiagnosticSamples equivalent
+	cfg := &fs.WalkerConfig{
+		MaxSkippedEntries:    3,
+		MaxExamplesPerReason: 2,
+		MaxDiagnosticPath:    10,
+		MaxSafeMessage:       10,
+		MaxDepth:             1,
+	}
+
+	walker, err := fs.NewSafeWalker(tmpDir, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = walker.Walk()
+
+	skipped := walker.Skipped()
+
+	// MaxExamplesPerReason is 2, so it should have saved exactly 2 entries.
+	if len(skipped) != 2 {
+		t.Fatalf("expected 2 skipped entries, got %d", len(skipped))
+	}
+
+	if walker.SkippedOmitted() != 3 {
+		t.Errorf("expected 3 omitted, got %d", walker.SkippedOmitted())
+	}
+
+	if walker.SkippedCounts()[fs.SkipCategoryDepthExceeded] != 5 {
+		t.Errorf("expected 5 total counted for category, got %d", walker.SkippedCounts()[fs.SkipCategoryDepthExceeded])
+	}
+
+	// Check truncation
+	for _, s := range skipped {
+		if len(s.Path) > 10 {
+			t.Errorf("path exceeded 10 chars: %s", s.Path)
+		}
+		if len(s.Reason) > 10 {
+			t.Errorf("reason exceeded 10 chars: %s", s.Reason)
+		}
+	}
+}
+
+func TestSafeWalker_SkippedCountsCopy(t *testing.T) {
+	tempDir := t.TempDir()
+	w, err := fs.NewSafeWalker(tempDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Internal state might be empty initially. Let's add a test hook or walk a broken symlink.
+	symlinkPath := filepath.Join(tempDir, "broken_link")
+	os.Symlink(filepath.Join(tempDir, "does_not_exist.txt"), symlinkPath)
+	w.Walk()
+
+	counts := w.SkippedCounts()
+	// Mutate
+	counts[fs.SkipCategorySymlinkFail] = 9999
+
+	countsAgain := w.SkippedCounts()
+	if countsAgain[fs.SkipCategorySymlinkFail] == 9999 {
+		t.Errorf("SkippedCounts returned mutable internal map")
+	}
+}
+
+func TestSafeWalker_AggregateBudgetProbeRead(t *testing.T) {
+	tempDir := t.TempDir()
+
+	file1 := filepath.Join(tempDir, "file1.txt")
+	file2 := filepath.Join(tempDir, "file2.txt")
+	content := []byte("0123456789") // 10 bytes
+	os.WriteFile(file1, content, 0644)
+	os.WriteFile(file2, content, 0644)
+
+	walker, _ := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{
+		MaxAggregateReadBytes: 15,
+	})
+
+	// Probe file1 (reads up to 512, but capped at 10 because of file size... wait, buffer is limit=15)
+	// It will read exactly 10 bytes.
+	isBin, err := walker.IsBinaryFile("file1.txt")
+	if err != nil {
+		t.Fatalf("Probe 1 failed: %v", err)
+	}
+	if isBin {
+		t.Errorf("expected not binary")
+	}
+
+	_, err = walker.SafeReadFile("file2.txt")
+	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted for read 2, got %v", err)
+	}
+
+	// Now budget remaining is still 5.
+	// Create file3 of exactly 5 bytes.
+	file3 := filepath.Join(tempDir, "file3.txt")
+	os.WriteFile(file3, []byte("12345"), 0644)
+
+	data, err := walker.SafeReadFile("file3.txt")
+	if err != nil {
+		t.Fatalf("Read 3 failed: %v", err)
+	}
+	if len(data) != 5 {
+		t.Errorf("expected 5 bytes read, got %d", len(data))
+	}
+
+	// Now budget is 0.
+	_, err = walker.IsBinaryFile("file1.txt")
+	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
+		t.Errorf("expected ErrBudgetExhausted for probe 3, got %v", err)
+	}
+
+	_, err = walker.SafeReadFile("file3.txt")
+	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
+		t.Errorf("expected ErrBudgetExhausted for read 4, got %v", err)
+	}
+}
+
+func TestSafeWalker_ProbeShortenedPrefix(t *testing.T) {
+	tempDir := t.TempDir()
+
+	file1 := filepath.Join(tempDir, "file1.txt")
+	os.WriteFile(file1, make([]byte, 20), 0644) // 20 bytes
+
+	walker, _ := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{
+		MaxAggregateReadBytes: 10, // less than file size
+	})
+
+	_, err := walker.IsBinaryFile("file1.txt")
+	if !errors.Is(err, fs.ErrBudgetExhausted) {
+		t.Fatalf("expected ErrBudgetExhausted due to shortened prefix, got %v", err)
+	}
+}
+
+func TestSafeWalker_SafeReadFileIncompleteRead(t *testing.T) {
+	tempDir := t.TempDir()
+
+	file1 := filepath.Join(tempDir, "file1.txt")
+	os.WriteFile(file1, make([]byte, 100), 0644)
+
+	walker, _ := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{
+		MaxFileSize: 50,
+	})
+
+	// This should fail early in os.Stat due to size limit
+	_, err := walker.SafeReadFile("file1.txt")
+	if err == nil || !strings.Contains(err.Error(), "exceeds size limit") {
+		t.Fatalf("expected size limit error, got %v", err)
 	}
 }

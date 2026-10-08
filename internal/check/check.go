@@ -17,9 +17,9 @@ type Check interface {
 	// Meta returns static metadata about this check.
 	Meta() Meta
 
-	// Run executes the check and returns any findings.
+	// Run executes the check. Findings are reported via sc.Emit.
 	// Checks must respect ctx cancellation and should return promptly.
-	Run(ctx context.Context, sc *ScanContext) ([]finding.Finding, error)
+	Run(ctx context.Context, sc *ScanContext) error
 }
 
 // Meta holds static metadata about a check.
@@ -70,6 +70,14 @@ type ScanContext struct {
 	// It enforces size limits and returns an error for files exceeding
 	// the configured maximum. Callers should handle errors gracefully.
 	ReadFile func(relPath string) ([]byte, error)
+
+	// IsBinaryFile checks if a file is binary by relative path.
+	// It deducts from the aggregate read budget.
+	IsBinaryFile func(relPath string) (bool, error)
+
+	// Emit records a finding discovered by the check.
+	// Checks must respect the returned error, stopping production if budgets are exhausted.
+	Emit func(f finding.Finding) error
 
 	// Options contains immutable per-run check configuration.
 	Options CheckOptions

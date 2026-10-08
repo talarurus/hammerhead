@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
@@ -15,7 +14,7 @@ func TestGitHealthCheck_NonGit(t *testing.T) {
 		Git:      &check.GitInfo{IsRepo: false},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

@@ -26,8 +26,13 @@ func (m *mockCheck) Meta() check.Meta {
 	return m.meta
 }
 
-func (m *mockCheck) Run(ctx context.Context, sc *check.ScanContext) ([]finding.Finding, error) {
-	return m.findings, m.err
+func (m *mockCheck) Run(ctx context.Context, sc *check.ScanContext) error {
+	for _, f := range m.findings {
+		if err := sc.Emit(f); err != nil {
+			return err
+		}
+	}
+	return m.err
 }
 
 func TestEngine_CheckErrorRetainsFindings(t *testing.T) {
@@ -63,12 +68,12 @@ func (c *sleepCheck) Meta() check.Meta {
 	return c.meta
 }
 
-func (c *sleepCheck) Run(ctx context.Context, sc *check.ScanContext) ([]finding.Finding, error) {
+func (c *sleepCheck) Run(ctx context.Context, sc *check.ScanContext) error {
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
 	case <-time.After(1 * time.Second):
-		return nil, nil
+		return nil
 	}
 }
 
@@ -78,15 +83,17 @@ type cancelTriggerCheck struct {
 }
 
 func (c *cancelTriggerCheck) Meta() check.Meta { return c.meta }
-func (c *cancelTriggerCheck) Run(ctx context.Context, _ *check.ScanContext) ([]finding.Finding, error) {
+func (c *cancelTriggerCheck) Run(ctx context.Context, sc *check.ScanContext) error {
 	// Emit a finding
 	f := finding.Finding{RuleID: c.meta.ID, Title: "A finding"}
+	if err := sc.Emit(f); err != nil {
+		return err
+	}
 
 	// Trigger cancellation
 	c.cancel()
 
-	// Return the finding
-	return []finding.Finding{f}, nil
+	return nil
 }
 
 type verifyCancelledCheck struct {
@@ -95,14 +102,14 @@ type verifyCancelledCheck struct {
 }
 
 func (c *verifyCancelledCheck) Meta() check.Meta { return c.meta }
-func (c *verifyCancelledCheck) Run(ctx context.Context, _ *check.ScanContext) ([]finding.Finding, error) {
+func (c *verifyCancelledCheck) Run(ctx context.Context, _ *check.ScanContext) error {
 	c.run = true
 	select {
 	case <-ctx.Done():
-		return nil, ctx.Err()
+		return ctx.Err()
 	default:
 	}
-	return nil, nil
+	return nil
 }
 
 func TestEngine_CancelRetainsResult(t *testing.T) {
@@ -173,11 +180,13 @@ type walkAssertCheck struct {
 }
 
 func (c *walkAssertCheck) Meta() check.Meta { return c.meta }
-func (c *walkAssertCheck) Run(_ context.Context, sc *check.ScanContext) ([]finding.Finding, error) {
+func (c *walkAssertCheck) Run(_ context.Context, sc *check.ScanContext) error {
 	if len(sc.Files) > 0 {
-		return []finding.Finding{{RuleID: c.meta.ID, Title: "Walked file found"}}, nil
+		if err := sc.Emit(finding.Finding{RuleID: c.meta.ID, Title: "Walked file found"}); err != nil {
+			return err
+		}
 	}
-	return nil, nil
+	return nil
 }
 
 func TestEngine_PartialWalkRetained(t *testing.T) {

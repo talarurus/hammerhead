@@ -51,13 +51,15 @@ func TestCLI_RepeatedInvocationsIsolated(t *testing.T) {
 
 	fakeAudit := func(ctx context.Context, req app.AuditRequest) (*app.AuditResponse, error) {
 		requests = append(requests, req)
-		return &app.AuditResponse{
-			Result: &engine.ScanResult{
-				Status: scanstate.StatusCompleted,
-				Findings: []finding.Finding{
-					{ID: "finding-123", Severity: finding.SeverityHigh, Class: finding.ClassSecurity},
-				},
+		res := &engine.ScanResult{
+			Status: scanstate.StatusCompleted,
+			Findings: []finding.Finding{
+				{ID: "finding-123", Severity: finding.SeverityHigh, Class: finding.ClassSecurity},
 			},
+		}
+		res.RecordObservedSecurity(finding.SeverityHigh)
+		return &app.AuditResponse{
+			Result:    res,
 			Threshold: app.ThresholdPolicy{Disabled: req.FailOnNone, Severity: req.FailOn},
 		}, nil
 	}
@@ -124,6 +126,7 @@ func TestCLI_FindingExitOneDoesNotPrintError(t *testing.T) {
 				{Severity: finding.SeverityHigh, Class: finding.ClassSecurity},
 			},
 		}
+		res.RecordObservedSecurity(finding.SeverityHigh)
 		return &app.AuditResponse{
 			Result:    res,
 			Threshold: app.ThresholdPolicy{Severity: finding.SeverityHigh},

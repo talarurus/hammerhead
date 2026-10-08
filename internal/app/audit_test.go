@@ -124,6 +124,11 @@ func TestScanResult_ExitPrecedence(t *testing.T) {
 					Status:   tt.status,
 					Findings: tt.findings,
 				}
+				for _, f := range tt.findings {
+					if f.Class == finding.ClassSecurity {
+						result.RecordObservedSecurity(f.Severity)
+					}
+				}
 			}
 
 			got := app.ExitCode(result, tt.policy)

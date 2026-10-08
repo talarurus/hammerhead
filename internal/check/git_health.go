@@ -33,15 +33,15 @@ func (c *GitHealthCheck) Meta() Meta {
 	}
 }
 
-func (c *GitHealthCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
+func (c *GitHealthCheck) Run(_ context.Context, sc *ScanContext) error {
 	if sc.Git == nil || !sc.Git.IsRepo {
-		return nil, nil
+		return nil
 	}
 
 	// Only inspect worktree status if the audited directory is the root of the Git repo.
 	// When auditing a subfolder (e.g. testdata fixtures or submodules), skip whole-repo worktree status.
 	if filepath.Clean(sc.RepoRoot) != filepath.Clean(sc.Git.Root) {
-		return nil, nil
+		return nil
 	}
 
 	targetDir := sc.RepoRoot
@@ -52,14 +52,12 @@ func (c *GitHealthCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Find
 	status, err := git.GetWorktreeStatus(targetDir)
 	if err != nil {
 		// Non-fatal: if git status fails (e.g. corrupted repo), return error to scan result warnings
-		return nil, fmt.Errorf("retrieving git status: %w", err)
+		return fmt.Errorf("retrieving git status: %w", err)
 	}
-
-	var findings []finding.Finding
 
 	if status.IsDirty {
 		evidence := fmt.Sprintf("Modified files: %d, Untracked files: %d", status.ModifiedCount, status.UntrackedCount)
-		findings = append(findings, finding.Finding{
+		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitHealthCheckID, "dirty-worktree"),
 			RuleID:      gitHealthCheckID,
 			Class:       finding.ClassInfo,
@@ -74,10 +72,13 @@ func (c *GitHealthCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Find
 			Source:      "hammerhead",
 			CheckVer:    gitHealthCheckVersion,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	if status.DetachedHEAD {
-		findings = append(findings, finding.Finding{
+		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitHealthCheckID, "detached-head"),
 			RuleID:      gitHealthCheckID,
 			Class:       finding.ClassInfo,
@@ -92,7 +93,10 @@ func (c *GitHealthCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Find
 			Source:      "hammerhead",
 			CheckVer:    gitHealthCheckVersion,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
-	return findings, nil
+	return nil
 }

@@ -41,11 +41,18 @@ type WalkedFile struct {
 
 // WalkerConfig controls SafeWalker behavior.
 type WalkerConfig struct {
-	MaxDepth        int      // Maximum directory depth (0 = use default)
-	MaxFiles        int      // Maximum number of files to yield (0 = use default)
-	MaxFileSize     int64    // Maximum file size in bytes for content reading (0 = use default)
-	ExtraDirs       []string // Additional directory names to exclude
-	ExcludePatterns []string // Glob/path patterns to exclude (e.g. "testdata/repos/dirty", "*.min.js", "vendor")
+	MaxDepth              int      // Maximum directory depth (0 = use default)
+	MaxFiles              int      // Maximum number of files to yield (0 = use default)
+	MaxFileSize           int64    // Maximum file size in bytes for content reading (0 = use default)
+	MaxAggregateReadBytes int64    // Maximum aggregate read bytes (0 = no limit, but typically bounded by scanstate)
+	ExtraDirs             []string // Additional directory names to exclude
+	ExcludePatterns       []string // Glob/path patterns to exclude (e.g. "testdata/repos/dirty", "*.min.js", "vendor")
+
+	// Bounding limits plumbed from engine/scanstate
+	MaxSkippedEntries    int
+	MaxExamplesPerReason int
+	MaxDiagnosticPath    int
+	MaxSafeMessage       int
 }
 
 func (c *WalkerConfig) maxDepth() int {
@@ -69,9 +76,42 @@ func (c *WalkerConfig) maxFileSize() int64 {
 	return DefaultMaxFileSize
 }
 
+func (c *WalkerConfig) maxAggregateReadBytes() int64 {
+	if c != nil && c.MaxAggregateReadBytes > 0 {
+		return c.MaxAggregateReadBytes
+	}
+	return 0 // 0 means unbounded here if not set, but the engine will provide scanstate limits
+}
+
+func (c *WalkerConfig) maxSkippedEntries() int {
+	if c != nil && c.MaxSkippedEntries > 0 {
+		return c.MaxSkippedEntries
+	}
+	return 200 // default fallback
+}
+
+func (c *WalkerConfig) maxExamplesPerReason() int {
+	if c != nil && c.MaxExamplesPerReason > 0 {
+		return c.MaxExamplesPerReason
+	}
+	return 5
+}
+
+func (c *WalkerConfig) maxDiagnosticPath() int {
+	if c != nil && c.MaxDiagnosticPath > 0 {
+		return c.MaxDiagnosticPath
+	}
+	return 16384
+}
+
+func (c *WalkerConfig) maxSafeMessage() int {
+	if c != nil && c.MaxSafeMessage > 0 {
+		return c.MaxSafeMessage
+	}
+	return 2048
+}
+
 // defaultExcludedDirs are directories that are always skipped during traversal.
-// These are either metadata directories, build outputs, or dependency caches
-// that produce massive false-positive volumes without security value.
 var defaultExcludedDirs = map[string]bool{
 	".git":          true,
 	"node_modules":  true,
@@ -90,18 +130,66 @@ var defaultExcludedDirs = map[string]bool{
 	".terraform":    true,
 }
 
+type SkipCategory string
+
+const (
+	SkipCategoryWalkError        SkipCategory = "walk_error"
+	SkipCategoryRelativePathFail SkipCategory = "relative_path_fail"
+	SkipCategoryUserExcluded     SkipCategory = "user_excluded"
+	SkipCategoryMaliciousName    SkipCategory = "malicious_name"
+	SkipCategoryDepthExceeded    SkipCategory = "depth_exceeded"
+	SkipCategoryExcludedDir      SkipCategory = "excluded_dir"
+	SkipCategorySymlinkFail      SkipCategory = "symlink_fail"
+	SkipCategoryPathTraversal    SkipCategory = "path_traversal"
+)
+
 // SafeWalker performs bounded, symlink-aware filesystem traversal.
 type SafeWalker struct {
-	root         string
-	config       *WalkerConfig
-	excludedDirs map[string]bool
-	skipped      []SkippedEntry
+	root               string
+	config             *WalkerConfig
+	excludedDirs       map[string]bool
+	aggregateReadBytes int64
+
+	skipped           []SkippedEntry
+	skippedTotal      int
+	skippedOmitted    int
+	skippedCounts     map[SkipCategory]int
+	skippedCategories map[SkipCategory]int
 }
 
 // SkippedEntry records a file or directory that was skipped during traversal.
 type SkippedEntry struct {
-	Path   string // Relative path
-	Reason string // Why it was skipped
+	Path     string       // Relative path
+	Category SkipCategory // Categorical reason
+	Reason   string       // Why it was skipped
+}
+
+const maxInt = int(^uint(0) >> 1)
+
+func (w *SafeWalker) addSkipped(path string, cat SkipCategory, reason string) {
+	if w.skippedCounts[cat] < maxInt {
+		w.skippedCounts[cat]++
+	}
+
+	if w.skippedTotal >= w.config.maxSkippedEntries() || w.skippedCategories[cat] >= w.config.maxExamplesPerReason() {
+		if w.skippedOmitted < maxInt {
+			w.skippedOmitted++
+		}
+		return
+	}
+
+	maxPath := w.config.maxDiagnosticPath()
+	if len(path) > maxPath {
+		path = path[:maxPath]
+	}
+	maxReason := w.config.maxSafeMessage()
+	if len(reason) > maxReason {
+		reason = reason[:maxReason]
+	}
+
+	w.skipped = append(w.skipped, SkippedEntry{Path: path, Category: cat, Reason: reason})
+	w.skippedTotal++
+	w.skippedCategories[cat]++
 }
 
 // NewSafeWalker creates a walker rooted at the given directory.
@@ -127,9 +215,11 @@ func NewSafeWalker(root string, config *WalkerConfig) (*SafeWalker, error) {
 	}
 
 	return &SafeWalker{
-		root:         resolvedRoot,
-		config:       config,
-		excludedDirs: excluded,
+		root:              resolvedRoot,
+		config:            config,
+		excludedDirs:      excluded,
+		skippedCounts:     make(map[SkipCategory]int),
+		skippedCategories: make(map[SkipCategory]int),
 	}, nil
 }
 
@@ -146,10 +236,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		if walkErr != nil {
 			// Permission denied or similar — skip, don't abort.
 			relPath, _ := filepath.Rel(w.root, absPath)
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   relPath,
-				Reason: fmt.Sprintf("walk error: %v", walkErr),
-			})
+			w.addSkipped(relPath, SkipCategoryWalkError, fmt.Sprintf("walk error: %v", walkErr))
 			if info != nil && info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -159,10 +246,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		// Compute relative path.
 		relPath, err := filepath.Rel(w.root, absPath)
 		if err != nil {
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   absPath,
-				Reason: "failed to compute relative path",
-			})
+			w.addSkipped(absPath, SkipCategoryRelativePathFail, "failed to compute relative path")
 			return nil
 		}
 
@@ -173,10 +257,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 
 		// Check user-configured exclude patterns.
 		if w.isExcluded(relPath, filepath.Base(relPath)) {
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   relPath,
-				Reason: "excluded by user pattern",
-			})
+			w.addSkipped(relPath, SkipCategoryUserExcluded, "excluded by user pattern")
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -185,10 +266,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 
 		// Check for malicious filenames.
 		if reason := checkFilename(filepath.Base(relPath)); reason != "" {
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   relPath,
-				Reason: reason,
-			})
+			w.addSkipped(relPath, SkipCategoryMaliciousName, reason)
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -198,10 +276,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		// Check directory depth.
 		depth := strings.Count(relPath, string(filepath.Separator)) + 1
 		if depth > maxDepth {
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   relPath,
-				Reason: fmt.Sprintf("exceeded max depth (%d)", maxDepth),
-			})
+			w.addSkipped(relPath, SkipCategoryDepthExceeded, fmt.Sprintf("exceeded max depth (%d)", maxDepth))
 			depthBudgetExceeded = true
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -213,10 +288,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		if info.IsDir() {
 			baseName := filepath.Base(absPath)
 			if w.excludedDirs[baseName] {
-				w.skipped = append(w.skipped, SkippedEntry{
-					Path:   relPath,
-					Reason: "excluded directory",
-				})
+				w.addSkipped(relPath, SkipCategoryExcludedDir, "excluded directory")
 				return filepath.SkipDir
 			}
 		}
@@ -225,26 +297,17 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		if info.Mode()&os.ModeSymlink != 0 {
 			resolved, err := filepath.EvalSymlinks(absPath)
 			if err != nil {
-				w.skipped = append(w.skipped, SkippedEntry{
-					Path:   relPath,
-					Reason: fmt.Sprintf("unresolvable symlink: %v", err),
-				})
+				w.addSkipped(relPath, SkipCategorySymlinkFail, fmt.Sprintf("unresolvable symlink: %v", err))
 				return nil
 			}
 			if !isInsideDir(resolved, w.root) {
-				w.skipped = append(w.skipped, SkippedEntry{
-					Path:   relPath,
-					Reason: "symlink escapes repository root",
-				})
+				w.addSkipped(relPath, SkipCategorySymlinkFail, "symlink escapes repository root")
 				return nil
 			}
 			// Re-stat the resolved target.
 			info, err = os.Stat(resolved)
 			if err != nil {
-				w.skipped = append(w.skipped, SkippedEntry{
-					Path:   relPath,
-					Reason: fmt.Sprintf("cannot stat symlink target: %v", err),
-				})
+				w.addSkipped(relPath, SkipCategorySymlinkFail, fmt.Sprintf("cannot stat symlink target: %v", err))
 				return nil
 			}
 			absPath = resolved
@@ -252,10 +315,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 
 		// Check for path traversal in the relative path.
 		if containsTraversal(relPath) {
-			w.skipped = append(w.skipped, SkippedEntry{
-				Path:   relPath,
-				Reason: "path contains traversal component",
-			})
+			w.addSkipped(relPath, SkipCategoryPathTraversal, "path contains traversal component")
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -292,6 +352,20 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 // Skipped returns all entries that were skipped during the last Walk.
 func (w *SafeWalker) Skipped() []SkippedEntry {
 	return w.skipped
+}
+
+// SkippedCounts returns the saturating count of skip categories encountered.
+func (w *SafeWalker) SkippedCounts() map[SkipCategory]int {
+	m := make(map[SkipCategory]int, len(w.skippedCounts))
+	for k, v := range w.skippedCounts {
+		m[k] = v
+	}
+	return m
+}
+
+// SkippedOmitted returns the number of skip entries that exceeded the diagnostic budget.
+func (w *SafeWalker) SkippedOmitted() int {
+	return w.skippedOmitted
 }
 
 // Root returns the resolved repository root path.
@@ -363,20 +437,51 @@ func (w *SafeWalker) SafeReadFile(relPath string) ([]byte, error) {
 		return nil, fmt.Errorf("file exceeds size limit (%d > %d bytes)", info.Size(), maxSize)
 	}
 
+	maxAggregate := w.config.maxAggregateReadBytes()
+	if maxAggregate > 0 {
+		if maxAggregate-w.aggregateReadBytes < info.Size() {
+			return nil, fmt.Errorf("%w: aggregate read budget exceeded", ErrBudgetExhausted)
+		}
+	}
+
 	f, err := os.Open(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
 	defer f.Close()
 
+	limit := maxSize
+	bindingLimitIsAggregate := false
+	if maxAggregate > 0 {
+		rem := maxAggregate - w.aggregateReadBytes
+		if rem < limit {
+			limit = rem
+			bindingLimitIsAggregate = true
+		}
+	}
+
 	// Read with an explicit limit as a defense-in-depth measure,
 	// even though we already checked the size via stat.
-	data, err := io.ReadAll(io.LimitReader(f, maxSize+1))
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	w.aggregateReadBytes += int64(len(data))
+
 	if err != nil {
 		return nil, fmt.Errorf("read: %w", err)
 	}
-	if int64(len(data)) > maxSize {
-		return nil, fmt.Errorf("file exceeds size limit during read")
+
+	postInfo, statErr := f.Stat()
+	if statErr != nil {
+		return nil, fmt.Errorf("stat after read: %w", statErr)
+	}
+
+	if int64(len(data)) < postInfo.Size() {
+		if int64(len(data)) == limit {
+			if bindingLimitIsAggregate {
+				return nil, fmt.Errorf("%w: aggregate read budget exceeded", ErrBudgetExhausted)
+			}
+			return nil, fmt.Errorf("file exceeds size limit during read")
+		}
+		return nil, fmt.Errorf("incomplete read: read %d bytes, file size is %d", len(data), postInfo.Size())
 	}
 
 	return data, nil
@@ -425,15 +530,43 @@ func checkFilename(name string) string {
 
 // IsBinaryFile checks if a file appears to be binary by inspecting its first bytes.
 // Uses the same approach as net/http: read up to 512 bytes and detect content type.
-func IsBinaryFile(path string) (bool, error) {
-	f, err := os.Open(path)
+// The read bytes are deducted from the SafeWalker's aggregate budget.
+func (w *SafeWalker) IsBinaryFile(relPath string) (bool, error) {
+	maxAggregate := w.config.maxAggregateReadBytes()
+	limit := int64(512)
+
+	if maxAggregate > 0 {
+		rem := maxAggregate - w.aggregateReadBytes
+		if rem <= 0 {
+			return false, ErrBudgetExhausted
+		}
+		if rem < limit {
+			limit = rem
+		}
+	}
+
+	absPath := filepath.Join(w.root, relPath)
+	f, err := os.Open(absPath)
 	if err != nil {
 		return false, err
 	}
 	defer f.Close()
 
-	buf := make([]byte, 512)
+	if maxAggregate > 0 {
+		rem := maxAggregate - w.aggregateReadBytes
+		if rem < 512 {
+			info, statErr := f.Stat()
+			if statErr == nil && info.Size() > rem {
+				return false, ErrBudgetExhausted
+			}
+		}
+	}
+
+	buf := make([]byte, limit)
 	n, err := f.Read(buf)
+
+	w.aggregateReadBytes += int64(n)
+
 	if err != nil && err != io.EOF {
 		return false, err
 	}

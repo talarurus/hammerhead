@@ -187,8 +187,8 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 	if parsed.Coverage.Policy.Exclusions != nil {
 		t.Errorf("expected exclusions null, got %v", parsed.Coverage.Policy.Exclusions)
 	}
-	if parsed.Coverage.Policy.EffectiveLimits != nil {
-		t.Errorf("expected effective_limits null, got %v", parsed.Coverage.Policy.EffectiveLimits)
+	if parsed.Coverage.Policy.EffectiveLimits == nil || len(parsed.Coverage.Policy.EffectiveLimits) == 0 {
+		t.Errorf("expected effective_limits to be populated, got %v", parsed.Coverage.Policy.EffectiveLimits)
 	}
 }
 
@@ -611,6 +611,14 @@ func TestV02JSON_MatchesGoldens(t *testing.T) {
 				},
 			},
 		},
+	}
+
+	for _, res := range scenarios {
+		for _, f := range res.Findings {
+			if f.Class == finding.ClassSecurity {
+				res.RecordObservedSecurity(f.Severity)
+			}
+		}
 	}
 
 	for name, res := range scenarios {

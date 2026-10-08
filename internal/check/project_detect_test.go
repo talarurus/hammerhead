@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestProjectDetectCheck_MultiEcosystem(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -73,7 +72,7 @@ func TestProjectDetectCheck_Undetermined(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

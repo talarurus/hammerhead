@@ -94,7 +94,7 @@ func (c *ProjectDetectCheck) Meta() Meta {
 	}
 }
 
-func (c *ProjectDetectCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
+func (c *ProjectDetectCheck) Run(_ context.Context, sc *ScanContext) error {
 	detected := make(map[string]string) // ecosystem -> manifest path
 
 	for _, file := range sc.Files {
@@ -114,15 +114,14 @@ func (c *ProjectDetectCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 	}
 
 	if len(detected) == 0 {
-		return nil, nil
+		return nil
 	}
 
-	var findings []finding.Finding
 	for eco, manifestPath := range detected {
 		title := fmt.Sprintf("Project runtime: %s", eco)
 		desc := fmt.Sprintf("Identified %s project ecosystem from manifest file '%s'.", eco, manifestPath)
 
-		findings = append(findings, finding.Finding{
+		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(projectDetectCheckID, eco),
 			RuleID:      projectDetectCheckID,
 			Class:       finding.ClassInfo,
@@ -137,7 +136,10 @@ func (c *ProjectDetectCheck) Run(_ context.Context, sc *ScanContext) ([]finding.
 			Source:      "hammerhead",
 			CheckVer:    projectDetectCheckVersion,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
-	return findings, nil
+	return nil
 }

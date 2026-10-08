@@ -32,7 +32,7 @@ func (c *RepoHygieneCheck) Meta() Meta {
 	}
 }
 
-func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Finding, error) {
+func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) error {
 	hasREADME := false
 	hasLICENSE := false
 
@@ -59,10 +59,8 @@ func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Fi
 		}
 	}
 
-	var findings []finding.Finding
-
 	if !hasREADME {
-		findings = append(findings, finding.Finding{
+		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(repoHygieneCheckID, "README"),
 			RuleID:      repoHygieneCheckID,
 			Class:       finding.ClassHygiene,
@@ -77,10 +75,13 @@ func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Fi
 			Source:      "hammerhead",
 			CheckVer:    repoHygieneCheckVersion,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
 	if !hasLICENSE {
-		findings = append(findings, finding.Finding{
+		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(repoHygieneCheckID, "LICENSE"),
 			RuleID:      repoHygieneCheckID,
 			Class:       finding.ClassHygiene,
@@ -95,9 +96,12 @@ func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) ([]finding.Fi
 			Source:      "hammerhead",
 			CheckVer:    repoHygieneCheckVersion,
 		})
+		if err != nil {
+			return err
+		}
 	}
 
-	return findings, nil
+	return nil
 }
 
 func isREADME(name string) bool {

@@ -66,7 +66,7 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 		byClass[string(cls)] = count
 	}
 
-	maxSec, hasSec := finding.MaxSecuritySeverity(result.Findings)
+	maxSec, hasSec := result.HighestObservedSecuritySeverity()
 	highestSec := ""
 	if hasSec {
 		highestSec = maxSec.String()

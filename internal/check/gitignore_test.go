@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -22,7 +21,7 @@ func TestGitignoreCheck_MissingFile(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -56,7 +55,7 @@ func TestGitignoreCheck_IncompleteFile(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -95,7 +94,7 @@ func TestGitignoreCheck_CompleteFile(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestGitignoreCheck_PublicCertWithoutPemInGitignore(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

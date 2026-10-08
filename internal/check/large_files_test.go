@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
@@ -26,7 +25,7 @@ func TestLargeFileCheck(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -63,7 +62,7 @@ func TestLargeFileCheck_DefaultThreshold(t *testing.T) {
 		Files:    files,
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

@@ -1,7 +1,6 @@
 package check_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
@@ -18,7 +17,7 @@ func TestRepoHygieneCheck_MissingBoth(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -49,7 +48,7 @@ func TestRepoHygieneCheck_HasBoth(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -70,7 +69,7 @@ func TestRepoHygieneCheck_AlternativeNames(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}
@@ -92,7 +91,7 @@ func TestRepoHygieneCheck_SubdirIgnored(t *testing.T) {
 		},
 	}
 
-	findings, err := c.Run(context.Background(), sc)
+	findings, err := runCheckForTest(c, sc)
 	if err != nil {
 		t.Fatalf("Run failed: %v", err)
 	}

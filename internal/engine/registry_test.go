@@ -21,8 +21,8 @@ func (d *dummyCheck) Meta() check.Meta {
 	}
 }
 
-func (d *dummyCheck) Run(_ context.Context, _ *check.ScanContext) ([]finding.Finding, error) {
-	return nil, nil
+func (d *dummyCheck) Run(_ context.Context, _ *check.ScanContext) error {
+	return nil
 }
 
 func TestRegistry_AddAndAll(t *testing.T) {
