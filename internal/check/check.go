@@ -10,6 +10,7 @@ import (
 	"io/fs"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
 )
 
 // Check is the interface every security check implements.
@@ -66,14 +67,8 @@ type ScanContext struct {
 	// Git holds repository metadata, or nil for non-Git directories.
 	Git *GitInfo
 
-	// ReadFile reads a file's contents by relative path.
-	// It enforces size limits and returns an error for files exceeding
-	// the configured maximum. Callers should handle errors gracefully.
-	ReadFile func(relPath string) ([]byte, error)
-
-	// IsBinaryFile checks if a file is binary by relative path.
-	// It deducts from the aggregate read budget.
-	IsBinaryFile func(relPath string) (bool, error)
+	// ReadFile safely reads a file's content by relative path.
+	ReadFile func(relPath string, maxSize int64) myfs.ReadOutcome
 
 	// Emit records a finding discovered by the check.
 	// Checks must respect the returned error, stopping production if budgets are exhausted.

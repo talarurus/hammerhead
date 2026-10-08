@@ -1,8 +1,11 @@
 module github.com/ammaarrehman/hammerhead
 
-go 1.26
+go 1.26.0
 
-require github.com/spf13/cobra v1.9.1
+require (
+	github.com/spf13/cobra v1.9.1
+	golang.org/x/sys v0.48.0
+)
 
 require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect

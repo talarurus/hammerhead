@@ -3,7 +3,6 @@ package check
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -143,28 +142,15 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 			continue
 		}
 
-		// Skip files larger than 5 MB for content regex scanning
-		if file.Size > 5*1024*1024 {
-			continue
-		}
-
-		// Check if file is binary before reading
-		isBin, err := sc.IsBinaryFile(file.Path)
-		if err == nil && isBin {
-			continue
-		}
-		if errors.Is(err, fs.ErrBudgetExhausted) {
+		// We use 5 MB as the eligibility boundary
+		outcome := sc.ReadFile(file.Path, 5*1024*1024)
+		if outcome.Status == fs.ReadStatusBudgetExhaust {
 			return scanstate.ErrBudgetExhausted
 		}
-
-		data, err := sc.ReadFile(file.Path)
-		if err != nil {
-			if errors.Is(err, fs.ErrBudgetExhausted) {
-				return scanstate.ErrBudgetExhausted
-			}
-			// Skip unreadable files without failing the entire audit
+		if outcome.Status != fs.ReadStatusText {
 			continue
 		}
+		data := outcome.Data
 
 		// Scan 1: PEM Private Key Header (FIRST supported key per file)
 		if loc := pemPrivateKeyRegex.FindIndex(data); loc != nil {
@@ -177,7 +163,7 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 			lineNum := bytes.Count(data[:matchStart], []byte("\n")) + 1
 			matchedHeader := string(data[matchStart:matchEnd])
 
-			err = sc.Emit(finding.Finding{
+			err := sc.Emit(finding.Finding{
 				ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d", file.Path, lineNum)),
 				RuleID:      secretCheckID,
 				Class:       finding.ClassSecurity,
@@ -199,7 +185,7 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 		}
 
 		// Scan 2: AWS Access Key ID & Credential Pairs
-		err = iterateAWSAccessKeys(ctx, data, func(m awsMatch) error {
+		err := iterateAWSAccessKeys(ctx, data, func(m awsMatch) error {
 			lineNum := bytes.Count(data[:m.matchStart], []byte("\n")) + 1
 			redactedKey := m.keyID[:4] + strings.Repeat("*", len(m.keyID)-4)
 

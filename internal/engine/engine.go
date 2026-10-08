@@ -183,6 +183,22 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		collector.AddDiagnostic(*pendingTraversalDiag)
 	}
 
+	aggReadBytes := int64(0)
+	readerConfig := fs.ReaderConfig{
+		RootPath:           walker.Root(),
+		AggregateReadBytes: &aggReadBytes,
+		MaxAggregate:       int64(limits.MaxAggregateReadBytes),
+		SecurityReadLimit:  config.SecurityReadLimit,
+		IsExcluded:         walker.IsExcluded,
+	}
+	guardedReader, err := fs.NewGuardedReader(readerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize guarded reader: %w", err)
+	}
+	if guardedReader != nil {
+		defer guardedReader.Close()
+	}
+
 	// Step 4: Build ScanContext for checks.
 	sc := &check.ScanContext{
 		RepoRoot: walker.Root(),
@@ -192,9 +208,10 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			Root:   gitInfo.Root,
 			Branch: gitInfo.Branch,
 		},
-		ReadFile:     walker.SafeReadFile,
-		IsBinaryFile: walker.IsBinaryFile,
-		Emit:         collector.Emit,
+		ReadFile: func(relPath string, maxSize int64) fs.ReadOutcome {
+			return guardedReader.ReadFile(ctx, relPath, fs.ReadOptions{MaxSize: maxSize})
+		},
+		Emit: collector.Emit,
 		Options: check.CheckOptions{
 			LargeFileThresholdBytes: config.LargeFileThreshold,
 		},

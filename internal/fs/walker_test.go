@@ -321,55 +321,6 @@ func TestSafeWalker_SafeReadFile(t *testing.T) {
 	}
 }
 
-func TestIsBinaryFile(t *testing.T) {
-	tempDir := t.TempDir()
-
-	walker, err := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{MaxAggregateReadBytes: 1024 * 1024})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Text file
-	textFile := filepath.Join(tempDir, "text.txt")
-	if err := os.WriteFile(textFile, []byte("Hello plain text world\nThis is text."), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	isBin, err := walker.IsBinaryFile("text.txt")
-	if err != nil {
-		t.Fatalf("IsBinaryFile failed: %v", err)
-	}
-	if isBin {
-		t.Errorf("plain text file incorrectly identified as binary")
-	}
-
-	// Binary file with null bytes and control chars
-	binFile := filepath.Join(tempDir, "binary.bin")
-	binContent := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00}
-	if err := os.WriteFile(binFile, binContent, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	isBin, err = walker.IsBinaryFile("binary.bin")
-	if err != nil {
-		t.Fatalf("IsBinaryFile failed: %v", err)
-	}
-	if !isBin {
-		t.Errorf("ELF binary header file not identified as binary")
-	}
-
-	// Empty file
-	emptyFile := filepath.Join(tempDir, "empty.txt")
-	if err := os.WriteFile(emptyFile, []byte{}, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	isBin, err = walker.IsBinaryFile("empty.txt")
-	if err != nil {
-		t.Fatalf("IsBinaryFile failed: %v", err)
-	}
-	if isBin {
-		t.Errorf("empty file should not be classified as binary")
-	}
-}
-
 func TestSafeWalker_ExcludePatterns(t *testing.T) {
 	tempDir := t.TempDir()
 
@@ -592,6 +543,10 @@ func TestSafeWalker_MalformedFilenames(t *testing.T) {
 		reason, ok := skippedMap[name]
 		if !ok {
 			t.Errorf("Expected malformed file %q to be recorded in SkippedEntries, but was not", name)
+		} else if strings.Contains(name, "invalid_utf8") {
+			if !strings.Contains(reason, "invalid UTF-8") {
+				t.Errorf("Expected file %q to be skipped for invalid UTF-8, got reason: %q", name, reason)
+			}
 		} else if !strings.Contains(reason, "control characters") {
 			t.Errorf("Expected file %q to be skipped for control characters, got reason: %q", name, reason)
 		}
@@ -670,6 +625,11 @@ func TestCheckFilename(t *testing.T) {
 			name:     "valid unicode filename",
 			filename: "file_日本語_test.txt",
 			expected: "",
+		},
+		{
+			name:     "invalid UTF-8",
+			filename: "invalid_utf8_\xff\xfe.txt",
+			expected: "filename contains invalid UTF-8",
 		},
 	}
 
@@ -755,75 +715,6 @@ func TestSafeWalker_SkippedCountsCopy(t *testing.T) {
 	countsAgain := w.SkippedCounts()
 	if countsAgain[fs.SkipCategorySymlinkFail] == 9999 {
 		t.Errorf("SkippedCounts returned mutable internal map")
-	}
-}
-
-func TestSafeWalker_AggregateBudgetProbeRead(t *testing.T) {
-	tempDir := t.TempDir()
-
-	file1 := filepath.Join(tempDir, "file1.txt")
-	file2 := filepath.Join(tempDir, "file2.txt")
-	content := []byte("0123456789") // 10 bytes
-	os.WriteFile(file1, content, 0644)
-	os.WriteFile(file2, content, 0644)
-
-	walker, _ := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{
-		MaxAggregateReadBytes: 15,
-	})
-
-	// Probe file1 (reads up to 512, but capped at 10 because of file size... wait, buffer is limit=15)
-	// It will read exactly 10 bytes.
-	isBin, err := walker.IsBinaryFile("file1.txt")
-	if err != nil {
-		t.Fatalf("Probe 1 failed: %v", err)
-	}
-	if isBin {
-		t.Errorf("expected not binary")
-	}
-
-	_, err = walker.SafeReadFile("file2.txt")
-	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
-		t.Fatalf("expected ErrBudgetExhausted for read 2, got %v", err)
-	}
-
-	// Now budget remaining is still 5.
-	// Create file3 of exactly 5 bytes.
-	file3 := filepath.Join(tempDir, "file3.txt")
-	os.WriteFile(file3, []byte("12345"), 0644)
-
-	data, err := walker.SafeReadFile("file3.txt")
-	if err != nil {
-		t.Fatalf("Read 3 failed: %v", err)
-	}
-	if len(data) != 5 {
-		t.Errorf("expected 5 bytes read, got %d", len(data))
-	}
-
-	// Now budget is 0.
-	_, err = walker.IsBinaryFile("file1.txt")
-	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
-		t.Errorf("expected ErrBudgetExhausted for probe 3, got %v", err)
-	}
-
-	_, err = walker.SafeReadFile("file3.txt")
-	if err != fs.ErrBudgetExhausted && !errors.Is(err, fs.ErrBudgetExhausted) {
-		t.Errorf("expected ErrBudgetExhausted for read 4, got %v", err)
-	}
-}
-
-func TestSafeWalker_ProbeShortenedPrefix(t *testing.T) {
-	tempDir := t.TempDir()
-
-	file1 := filepath.Join(tempDir, "file1.txt")
-	os.WriteFile(file1, make([]byte, 20), 0644) // 20 bytes
-
-	walker, _ := fs.NewSafeWalker(tempDir, &fs.WalkerConfig{
-		MaxAggregateReadBytes: 10, // less than file size
-	})
-
-	_, err := walker.IsBinaryFile("file1.txt")
-	if !errors.Is(err, fs.ErrBudgetExhausted) {
-		t.Fatalf("expected ErrBudgetExhausted due to shortened prefix, got %v", err)
 	}
 }
 

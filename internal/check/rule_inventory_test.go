@@ -9,6 +9,7 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/check"
 	"github.com/ammaarrehman/hammerhead/internal/engine"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/fs"
 )
 
 func createGitRepo(t *testing.T, makeDirty bool, detachHead bool) *check.ScanContext {
@@ -394,11 +395,11 @@ func scWithFileContent(path, content string) *check.ScanContext {
 	return &check.ScanContext{
 		RepoRoot: ".",
 		Files:    []check.FileInfo{{Path: path}},
-		ReadFile: func(p string) ([]byte, error) {
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
 			if p == path {
-				return []byte(content), nil
+				return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 			}
-			return nil, nil
+			return fs.ReadOutcome{Status: fs.ReadStatusError, Err: os.ErrNotExist}
 		},
 	}
 }

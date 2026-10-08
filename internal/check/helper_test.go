@@ -13,10 +13,6 @@ func runCheckForTest(c check.Check, sc *check.ScanContext) ([]finding.Finding, e
 	collector := scanstate.NewCollector(limits)
 
 	sc.Emit = collector.Emit
-	if sc.IsBinaryFile == nil {
-		sc.IsBinaryFile = func(relPath string) (bool, error) { return false, nil }
-	}
-
 	err := c.Run(context.Background(), sc)
 	if err != nil {
 		// If the error is budget exhausted, that is considered a successful early stop,
@@ -34,9 +30,6 @@ func runCheckForTestWithLimit(c check.Check, sc *check.ScanContext, limit int) (
 	collector := scanstate.NewCollector(limits)
 
 	sc.Emit = collector.Emit
-	if sc.IsBinaryFile == nil {
-		sc.IsBinaryFile = func(relPath string) (bool, error) { return false, nil }
-	}
 
 	err := c.Run(context.Background(), sc)
 	return collector.Findings(), err

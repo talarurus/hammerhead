@@ -173,3 +173,51 @@ func TestEngine_MaxFileSizeConflation(t *testing.T) {
 		t.Errorf("Expected SEC-001 to find the secret! The read limit should not be conflated with the large file threshold.")
 	}
 }
+
+func TestEngine_SecurityReadLimitEnforcement(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Write a file containing a secret
+	content := []byte("-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgk")
+	if err := os.WriteFile(filepath.Join(tempDir, ".env"), content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	registry := engine.DefaultRegistry()
+	eng := engine.New(registry)
+
+	// First verify it DOES find it with default config
+	resultDef, err := eng.Scan(context.Background(), tempDir, &engine.ScanConfig{})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+	found := false
+	for _, f := range resultDef.Findings {
+		if f.RuleID == "SEC-001" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected SEC-001 finding with default config, found none. Got findings: %+v", resultDef.Findings)
+	}
+
+	// Now explicitly set an artificially low SecurityReadLimit (10 bytes).
+	// AWS check usually asks for 5 MiB. We want to ensure 10 bytes wins.
+	// Since 10 bytes is smaller than the file, the read should be rejected by GuardedReader as TooLarge,
+	// and the secret shouldn't be found.
+	config := &engine.ScanConfig{
+		SecurityReadLimit: 10,
+	}
+
+	result, err := eng.Scan(context.Background(), tempDir, config)
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	for _, f := range result.Findings {
+		if f.RuleID == "SEC-001" {
+			t.Errorf("found secret in file that should have been rejected as too large: %+v", f)
+		}
+	}
+}

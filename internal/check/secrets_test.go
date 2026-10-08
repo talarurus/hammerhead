@@ -6,6 +6,7 @@ import (
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/fs"
 )
 
 func TestSecretPatternCheck_PEMKey(t *testing.T) {
@@ -20,8 +21,8 @@ func TestSecretPatternCheck_PEMKey(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "config/keys.go", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -63,8 +64,8 @@ func TestSecretPatternCheck_AWSAccessKeyOnly(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "deploy.env", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -108,8 +109,8 @@ func TestSecretPatternCheck_AWSCredentialPair(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "deploy.env", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -154,8 +155,8 @@ func TestSecretPatternCheck_PublicCertNotFlagged(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "certs/ca.pem", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -182,8 +183,8 @@ AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
 		Files: []check.FileInfo{
 			{Path: "README.md", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -214,8 +215,8 @@ func main() {
 		Files: []check.FileInfo{
 			{Path: "main.go", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -242,8 +243,8 @@ func TestSecretPatternCheck_WordBoundaryPreserved(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "boundaries.env", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -279,8 +280,8 @@ func TestSecretPatternCheck_FirstPEMHeaderPerFile(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "config/keys.pem", Size: int64(len(content)), IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 

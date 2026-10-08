@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 const (
@@ -89,10 +91,14 @@ func (c *GitignoreCheck) Run(_ context.Context, sc *ScanContext) error {
 	}
 
 	// 2. Read .gitignore
-	data, err := sc.ReadFile(".gitignore")
-	if err != nil {
-		return fmt.Errorf("reading .gitignore: %w", err)
+	outcome := sc.ReadFile(".gitignore", 10*1024*1024)
+	if outcome.Status == fs.ReadStatusBudgetExhaust {
+		return scanstate.ErrBudgetExhausted
 	}
+	if outcome.Status != fs.ReadStatusText {
+		return fmt.Errorf("reading .gitignore: %w", outcome.Err)
+	}
+	data := outcome.Data
 
 	// 3. Evaluate each required pattern group directly from the buffer
 	// to avoid unbounded memory allocation for activeEntries.

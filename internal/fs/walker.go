@@ -13,11 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ErrBudgetExhausted indicates that traversal exceeded the maximum configured limits.
@@ -256,7 +256,7 @@ func (w *SafeWalker) Walk() ([]WalkedFile, error) {
 		}
 
 		// Check user-configured exclude patterns.
-		if w.isExcluded(relPath, filepath.Base(relPath)) {
+		if w.IsExcluded(relPath, filepath.Base(relPath)) {
 			w.addSkipped(relPath, SkipCategoryUserExcluded, "excluded by user pattern")
 			if info.IsDir() {
 				return filepath.SkipDir
@@ -373,8 +373,11 @@ func (w *SafeWalker) Root() string {
 	return w.root
 }
 
-// isExcluded reports whether a relative path or basename matches user-configured ExcludePatterns.
-func (w *SafeWalker) isExcluded(relPath, baseName string) bool {
+// IsExcluded reports whether a relative path or basename matches user-configured ExcludePatterns.
+func (w *SafeWalker) IsExcluded(relPath, baseName string) bool {
+	if w.excludedDirs != nil && w.excludedDirs[baseName] {
+		return true
+	}
 	if w.config == nil || len(w.config.ExcludePatterns) == 0 {
 		return false
 	}
@@ -520,68 +523,13 @@ func checkFilename(name string) string {
 	if strings.Contains(name, "\x00") {
 		return "filename contains null byte"
 	}
+	if !utf8.ValidString(name) {
+		return "filename contains invalid UTF-8"
+	}
 	for _, r := range name {
 		if unicode.IsControl(r) {
 			return "filename contains control characters"
 		}
 	}
 	return ""
-}
-
-// IsBinaryFile checks if a file appears to be binary by inspecting its first bytes.
-// Uses the same approach as net/http: read up to 512 bytes and detect content type.
-// The read bytes are deducted from the SafeWalker's aggregate budget.
-func (w *SafeWalker) IsBinaryFile(relPath string) (bool, error) {
-	maxAggregate := w.config.maxAggregateReadBytes()
-	limit := int64(512)
-
-	if maxAggregate > 0 {
-		rem := maxAggregate - w.aggregateReadBytes
-		if rem <= 0 {
-			return false, ErrBudgetExhausted
-		}
-		if rem < limit {
-			limit = rem
-		}
-	}
-
-	absPath := filepath.Join(w.root, relPath)
-	f, err := os.Open(absPath)
-	if err != nil {
-		return false, err
-	}
-	defer f.Close()
-
-	if maxAggregate > 0 {
-		rem := maxAggregate - w.aggregateReadBytes
-		if rem < 512 {
-			info, statErr := f.Stat()
-			if statErr == nil && info.Size() > rem {
-				return false, ErrBudgetExhausted
-			}
-		}
-	}
-
-	buf := make([]byte, limit)
-	n, err := f.Read(buf)
-
-	w.aggregateReadBytes += int64(n)
-
-	if err != nil && err != io.EOF {
-		return false, err
-	}
-	if n == 0 {
-		return false, nil // Empty file is not binary.
-	}
-
-	contentType := http.DetectContentType(buf[:n])
-	// text/* and application/json are treated as text.
-	if strings.HasPrefix(contentType, "text/") {
-		return false, nil
-	}
-	if contentType == "application/json" {
-		return false, nil
-	}
-	// application/octet-stream and everything else is binary.
-	return true, nil
 }

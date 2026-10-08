@@ -1,11 +1,13 @@
 package check_test
 
 import (
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/ammaarrehman/hammerhead/internal/fs"
 )
 
 func TestGitignoreCheck_MissingFile(t *testing.T) {
@@ -16,8 +18,8 @@ func TestGitignoreCheck_MissingFile(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "main.go", IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return nil, nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusError, Err: os.ErrNotExist}
 		},
 	}
 
@@ -50,8 +52,8 @@ func TestGitignoreCheck_IncompleteFile(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: ".gitignore", IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -89,8 +91,8 @@ func TestGitignoreCheck_CompleteFile(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: ".gitignore", IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
-			return []byte(content), nil
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(content)}
 		},
 	}
 
@@ -120,11 +122,11 @@ func TestGitignoreCheck_PublicCertWithoutPemInGitignore(t *testing.T) {
 			{Path: ".gitignore", IsDir: false},
 			{Path: "certs/ca-bundle.pem", IsDir: false},
 		},
-		ReadFile: func(p string) ([]byte, error) {
+		ReadFile: func(p string, maxSize int64) fs.ReadOutcome {
 			if p == ".gitignore" {
-				return []byte(gitignoreContent), nil
+				return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte(gitignoreContent)}
 			}
-			return []byte("-----BEGIN CERTIFICATE-----\n..."), nil
+			return fs.ReadOutcome{Status: fs.ReadStatusText, Data: []byte("-----BEGIN CERTIFICATE-----\n...")}
 		},
 	}
 

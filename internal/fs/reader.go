@@ -1,0 +1,44 @@
+package fs
+
+import (
+	"context"
+)
+
+// ReadStatus indicates the result of a guarded read attempt.
+type ReadStatus string
+
+const (
+	ReadStatusText          ReadStatus = "text"
+	ReadStatusBinary        ReadStatus = "binary"
+	ReadStatusTooLarge      ReadStatus = "too_large"
+	ReadStatusBudgetExhaust ReadStatus = "budget_exhaust"
+	ReadStatusSafetyReject  ReadStatus = "safety_reject"
+	ReadStatusError         ReadStatus = "error"
+)
+
+// ReadOutcome contains the safe read result.
+type ReadOutcome struct {
+	Status ReadStatus
+	Data   []byte
+	Err    error
+}
+
+// ReadOptions controls a single content read.
+type ReadOptions struct {
+	MaxSize int64
+}
+
+// GuardedReader provides bounded, rooted content access.
+type GuardedReader interface {
+	ReadFile(ctx context.Context, relativePath string, opts ReadOptions) ReadOutcome
+	Close() error
+}
+
+// ReaderConfig holds configuration for creating a GuardedReader.
+type ReaderConfig struct {
+	RootPath           string
+	AggregateReadBytes *int64
+	MaxAggregate       int64
+	SecurityReadLimit  int64
+	IsExcluded         func(relPath, baseName string) bool
+}
