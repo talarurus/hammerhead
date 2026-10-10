@@ -13,7 +13,8 @@ import (
 	"strings"
 )
 
-// Severity represents the security severity of a finding.
+// Severity represents potential impact within a finding's class, not verification
+// of credential validity, activity, exposure, or compromise.
 type Severity int
 
 const (
@@ -21,7 +22,7 @@ const (
 	SeverityLow                      // Best-practice deviation, minor risk
 	SeverityMedium                   // Security hygiene issue that increases risk
 	SeverityHigh                     // Likely security issue requiring attention
-	SeverityCritical                 // Active credential exposure or equivalent
+	SeverityCritical                 // Potential critical impact; credential activity is unverified
 )
 
 var severityNames = [...]string{"info", "low", "medium", "high", "critical"}
@@ -82,7 +83,8 @@ func AllSeverities() []Severity {
 	return []Severity{SeverityCritical, SeverityHigh, SeverityMedium, SeverityLow, SeverityInfo}
 }
 
-// Confidence represents how certain a finding is.
+// Confidence describes certainty in the rule's observation or heuristic,
+// not verification of sensitive contents, credential validity, or exposure.
 type Confidence int
 
 const (
@@ -138,15 +140,15 @@ const (
 type FindingClass string
 
 const (
-	ClassSecurity FindingClass = "security" // Active credential exposure, sensitive files, direct security risks
+	ClassSecurity FindingClass = "security" // Potential security risks from supported content or filename patterns
 	ClassHygiene  FindingClass = "hygiene"  // Best practices, gitignore coverage, README/LICENSE, large files
-	ClassInfo     FindingClass = "info"     // Project runtime context, clean worktree status
+	ClassInfo     FindingClass = "info"     // Project ecosystem hints, dirty worktree or detached HEAD observations
 )
 
 // Finding represents a single security or hygiene finding.
 //
 // Every field is justified:
-//   - ID:          unique instance identifier for deduplication and suppression
+//   - ID:          short deterministic identifier; collisions are possible, not a deduplication key
 //   - RuleID:      links to the check definition (e.g., "FILE-001")
 //   - Class:       categorizes as security, hygiene, or info (drives overall security risk)
 //   - Category:    groups findings for reporting
@@ -183,7 +185,8 @@ func (f Finding) AffectsSecurityRisk() bool {
 }
 
 // GenerateID produces a deterministic instance ID from rule ID and path.
-// The same rule + path always produces the same ID, enabling deduplication.
+// The same rule + path always produces the same ID. Short hashes can collide;
+// findings are not deduplicated by ID.
 func GenerateID(ruleID, path string) string {
 	h := sha256.Sum256([]byte(ruleID + ":" + path))
 	return fmt.Sprintf("%s-%x", ruleID, h[:4])

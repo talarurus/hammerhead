@@ -8,15 +8,9 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 )
 
-// SensitiveFileCheck detects files with names that indicate sensitive content.
-//
-// This check matches filenames against a curated list of patterns known to
-// contain credentials, private keys, or configuration secrets. It does NOT
-// read file contents — it operates purely on filenames.
-//
-// Confidence is set based on how definitively the filename indicates sensitive
-// content. A file named "id_rsa" is high confidence. A file ending in ".sql"
-// is lower confidence because it may be a schema file rather than a data dump.
+// SensitiveFileCheck matches filenames associated with potentially sensitive content.
+// It does not read contents or establish credential validity, tracking, or exposure.
+// Confidence describes the filename heuristic, not verified sensitive contents.
 type SensitiveFileCheck struct{}
 
 // sensitivePattern defines a single filename pattern to match.
@@ -44,65 +38,65 @@ var sensitivePatterns = []sensitivePattern{
 		match:      exactName("id_rsa"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceHigh,
-		title:      "SSH private key",
-		desc:       "An SSH private key file was found. If this is a real key, it may grant unauthorized access to systems.",
-		remediate:  "Remove the file from the repository, rotate the key, and add 'id_rsa' to .gitignore. Use ssh-keygen to generate a new key pair.",
+		title:      "Potential SSH private key file",
+		desc:       "The filename matches id_rsa, a name commonly used for SSH private keys. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactName("id_dsa"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceHigh,
-		title:      "SSH private key (DSA)",
-		desc:       "A DSA SSH private key file was found. DSA keys are also considered cryptographically weak.",
-		remediate:  "Remove the file, rotate the key, and add 'id_dsa' to .gitignore. Consider migrating to Ed25519 keys.",
+		title:      "Potential SSH private key file (DSA)",
+		desc:       "The filename matches id_dsa, a name commonly used for DSA SSH private keys. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactName("id_ecdsa"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceHigh,
-		title:      "SSH private key (ECDSA)",
-		desc:       "An ECDSA SSH private key file was found in the repository.",
-		remediate:  "Remove the file, rotate the key, and add 'id_ecdsa' to .gitignore.",
+		title:      "Potential SSH private key file (ECDSA)",
+		desc:       "The filename matches id_ecdsa, a name commonly used for ECDSA SSH private keys. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactName("id_ed25519"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceHigh,
-		title:      "SSH private key (Ed25519)",
-		desc:       "An Ed25519 SSH private key file was found in the repository.",
-		remediate:  "Remove the file, rotate the key, and add 'id_ed25519' to .gitignore.",
+		title:      "Potential SSH private key file (Ed25519)",
+		desc:       "The filename matches id_ed25519, a name commonly used for Ed25519 SSH private keys. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      hasExtension(".pem"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceMedium,
-		title:      "PEM-encoded key or certificate",
-		desc:       "A .pem file was found. PEM files may contain private keys or certificates.",
-		remediate:  "Verify whether this file contains a private key. If so, remove it and add '*.pem' to .gitignore.",
+		title:      "Potential PEM key or certificate file",
+		desc:       "The filename has a .pem extension, which may indicate a private key, a public certificate, or other data. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      hasExtension(".key"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceMedium,
-		title:      "Private key file",
-		desc:       "A .key file was found, which commonly contains private cryptographic keys.",
-		remediate:  "Remove the file if it contains a private key and add '*.key' to .gitignore.",
+		title:      "Potential private key file",
+		desc:       "The filename has a .key extension, which may indicate a private key or unrelated data. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      hasAnyExtension(".p12", ".pfx"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceHigh,
-		title:      "PKCS#12 keystore",
-		desc:       "A PKCS#12 keystore was found. These files contain private keys and certificates, often password-protected.",
-		remediate:  "Remove the file, rotate the contained keys/certificates, and add '*.p12' and '*.pfx' to .gitignore.",
+		title:      "Potential PKCS#12 keystore file",
+		desc:       "The filename has a .p12 or .pfx extension, which may indicate a keystore. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      hasAnyExtension(".jks", ".keystore"),
 		severity:   finding.SeverityHigh,
 		confidence: finding.ConfidenceMedium,
-		title:      "Java keystore",
-		desc:       "A Java keystore file was found. These may contain private keys and certificates.",
-		remediate:  "Remove the file if it contains production keys and add the extension to .gitignore.",
+		title:      "Potential Java keystore file",
+		desc:       "The filename has a .jks or .keystore extension, which may indicate a Java keystore. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 
 	// === Environment and credential files (high confidence, medium severity) ===
@@ -110,41 +104,41 @@ var sensitivePatterns = []sensitivePattern{
 		match:      exactDotEnv,
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceHigh,
-		title:      "Environment configuration file",
-		desc:       "A .env file was found. These files typically contain environment variables including API keys, database credentials, and other secrets.",
-		remediate:  "Remove the file from the repository, add '.env' to .gitignore, and use a .env.example file with placeholder values instead.",
+		title:      "Potential environment configuration file",
+		desc:       "The filename matches a supported .env naming pattern, which may indicate environment configuration. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactName(".htpasswd"),
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceHigh,
-		title:      "Apache password file",
-		desc:       "An .htpasswd file was found containing hashed passwords for HTTP authentication.",
-		remediate:  "Remove the file and add '.htpasswd' to .gitignore. Manage authentication credentials outside version control.",
+		title:      "Potential Apache password file",
+		desc:       "The filename matches .htpasswd, a name commonly used for HTTP authentication password hashes. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactNameAny(".netrc", "_netrc"),
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceHigh,
-		title:      "Netrc credentials file",
-		desc:       "A .netrc file was found. These files store login credentials for remote hosts.",
-		remediate:  "Remove the file and add '.netrc' to .gitignore.",
+		title:      "Potential Netrc credentials file",
+		desc:       "The filename matches .netrc or _netrc, names commonly used for remote-host login configuration. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactName(".pgpass"),
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceHigh,
-		title:      "PostgreSQL password file",
-		desc:       "A .pgpass file was found containing PostgreSQL connection credentials.",
-		remediate:  "Remove the file and add '.pgpass' to .gitignore. Use environment variables for database credentials.",
+		title:      "Potential PostgreSQL password file",
+		desc:       "The filename matches .pgpass, a name commonly used for PostgreSQL connection credentials. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      exactNameAny(".npmrc", ".pypirc"),
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceMedium,
-		title:      "Package manager credentials",
-		desc:       "A package manager configuration file was found that may contain authentication tokens for package registries.",
-		remediate:  "Remove the file if it contains auth tokens and add it to .gitignore. Use environment variables for registry authentication.",
+		title:      "Potential package manager credentials file",
+		desc:       "The filename matches .npmrc or .pypirc, names used for package manager configuration that may include authentication tokens. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 
 	// === Configuration that may contain secrets (medium confidence) ===
@@ -153,23 +147,23 @@ var sensitivePatterns = []sensitivePattern{
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceMedium,
 		title:      "Potential credentials file",
-		desc:       "A file with 'credentials' in its name was found. It may contain authentication data.",
-		remediate:  "Review the file contents. If it contains real credentials, remove it and add the filename to .gitignore.",
+		desc:       "The filename contains credentials, which may indicate authentication data. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 	{
 		match:      nameContainsNonCode("secret"),
 		severity:   finding.SeverityMedium,
 		confidence: finding.ConfidenceLow,
 		title:      "Potential secrets file",
-		desc:       "A file with 'secret' in its name was found. It may contain sensitive configuration.",
-		remediate:  "Review the file contents. If it contains secrets, remove it and add the filename to .gitignore.",
+		desc:       "The filename contains secret, which may indicate sensitive configuration. This is a filename-only match; contents were not inspected.",
+		remediate:  "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 	},
 }
 
 const (
 	sensitiveCheckID      = "FILE-001"
 	sensitiveCheckName    = "sensitive-file-detection"
-	sensitiveCheckVersion = "0.1.0"
+	sensitiveCheckVersion = "0.2.0"
 )
 
 func (c *SensitiveFileCheck) Meta() Meta {
@@ -177,7 +171,7 @@ func (c *SensitiveFileCheck) Meta() Meta {
 		ID:          sensitiveCheckID,
 		Name:        sensitiveCheckName,
 		Category:    finding.CategoryFiles,
-		Description: "Detects files with names indicating sensitive content such as private keys, credentials, or environment files",
+		Description: "Matches filenames associated with potentially sensitive content without inspecting their contents",
 		Version:     sensitiveCheckVersion,
 	}
 }

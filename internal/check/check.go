@@ -57,8 +57,9 @@ type ScanContext struct {
 	RepoRoot string
 
 	// Files is the pre-walked, pre-filtered list of repository files.
-	// Symlinks have been resolved and validated. Excluded directories
-	// have been skipped. Binary files are included but flagged.
+	// Excluded directories have been skipped. Content eligibility and binary
+	// classification are determined by the guarded ReadFile outcome; FileInfo
+	// does not carry a binary-content flag.
 	Files []FileInfo
 
 	// Git holds an explicit metadata snapshot, including unavailable/non-applicable states.

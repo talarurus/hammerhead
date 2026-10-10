@@ -15,7 +15,7 @@ import (
 const (
 	secretCheckID      = "SEC-001"
 	secretCheckName    = "secret-content-signatures"
-	secretCheckVersion = "0.1.0"
+	secretCheckVersion = "0.2.0"
 )
 
 // Content signatures: narrow, deterministic, high-confidence.
@@ -36,14 +36,13 @@ const (
 	awsDocSecretExample = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 )
 
-// SecretPatternCheck inspects file contents for high-confidence credential signatures.
+// SecretPatternCheck inspects file contents for supported credential-shaped signatures.
 //
 // Design principles:
-//   - Strictly limited to unambiguous credential formats (PEM private keys, AWS credentials).
-//   - An AWS Access Key ID by itself is an identifier (SeverityMedium). If both an Access Key ID
-//     and an associated Secret Access Key are present in the same file context, it is classified
-//     as a confirmed credential pair (SeverityCritical).
-//   - Skips binary files and oversized files via SafeWalker protections.
+//   - Matches private-key headers and AWS-shaped identifiers/assignments, without validation.
+//   - An AWS-shaped ID alone is SeverityMedium; same-file co-occurrence with a supported
+//     secret assignment is SeverityCritical. Neither establishes a matching or active pair.
+//   - The guarded reader classifies binary content; files over 5 MiB are ineligible.
 //   - Never displays full secrets: all evidence snippets are redacted.
 //   - Not an entropy scanner; does not purport to replace TruffleHog.
 type SecretPatternCheck struct{}
@@ -53,7 +52,7 @@ func (c *SecretPatternCheck) Meta() Meta {
 		ID:          secretCheckID,
 		Name:        secretCheckName,
 		Category:    finding.CategorySecrets,
-		Description: "Detects high-confidence secret signatures (PEM private keys, AWS access keys and credential pairs) in file contents",
+		Description: "Detects supported private-key headers and AWS-shaped IDs with optional same-file secret assignments; does not validate credentials",
 		Version:     secretCheckVersion,
 	}
 }
@@ -201,9 +200,9 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 				Category:    finding.CategorySecrets,
 				Severity:    finding.SeverityHigh,
 				Confidence:  finding.ConfidenceHigh,
-				Title:       "Cryptographic private key in file content",
-				Description: fmt.Sprintf("A PEM-encoded private key header (%s) was identified in file content. Committing private keys allows unauthorized actors to impersonate services or access encrypted data.", matchedHeader),
-				Remediation: "Remove the private key from the repository and Git history immediately. Rotate all associated cryptographic certificates, SSH keys, or services.",
+				Title:       "Supported private-key header detected",
+				Description: fmt.Sprintf("A supported private-key header (%s) was detected in file content. The header alone does not establish that the file contains a valid or usable private key. Tracking, exposure, and compromise were not established.", matchedHeader),
+				Remediation: "Review the contents to determine whether this is a real private key. If so, keep it outside shared source files and determine whether exposure occurred. If exposure is confirmed, replace the affected key and review its use.",
 				Path:        file.Path,
 				Line:        lineNum,
 				Evidence:    fmt.Sprintf("%s [KEY DATA REDACTED]", matchedHeader),
@@ -215,7 +214,7 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 			}
 		}
 
-		// Scan 2: AWS Access Key ID & Credential Pairs
+		// Scan 2: AWS-shaped IDs and same-file secret assignments
 		err := iterateAWSAccessKeys(ctx, data, func(m awsMatch) error {
 			lineNum := bytes.Count(data[:m.matchStart], []byte("\n")) + 1
 			redactedKey := m.keyID[:4] + strings.Repeat("*", len(m.keyID)-4)
@@ -229,9 +228,9 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 					Category:    finding.CategorySecrets,
 					Severity:    finding.SeverityCritical,
 					Confidence:  finding.ConfidenceHigh,
-					Title:       "AWS credential pair (Access Key and Secret Key) committed to repository",
-					Description: fmt.Sprintf("Both an AWS Access Key ID ('%s...') and a corresponding Secret Access Key assignment were identified in this file. Active credential pairs allow immediate programmatic authentication to AWS resources.", m.keyID[:4]),
-					Remediation: "Immediately deactivate and delete this Access Key pair in the AWS IAM Console. Rotate any associated credentials and inspect AWS CloudTrail logs for unauthorized API activity.",
+					Title:       "AWS-shaped ID and secret assignment in the same file",
+					Description: fmt.Sprintf("An AWS-shaped Access Key ID ('%s...') and a supported 40-character secret assignment were detected in the same file. This does not establish that they match, are valid or active, were committed or exposed, or have been compromised.", m.keyID[:4]),
+					Remediation: "Verify whether these values are real credentials and whether they belong together. If sensitive, keep them outside shared source files. Determine whether exposure occurred; if confirmed, revoke or rotate the affected credentials and review their use.",
 					Path:        file.Path,
 					Line:        lineNum,
 					Evidence:    fmt.Sprintf("%s [SECRET KEY REDACTED]", redactedKey),
@@ -240,7 +239,7 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 				})
 			}
 
-			// Case A: Access Key ID alone without verified secret key -> MEDIUM
+			// Case A: AWS-shaped ID without a supported non-example secret assignment -> MEDIUM
 			return sc.Emit(finding.Finding{
 				ID:          finding.GenerateID(secretCheckID, fmt.Sprintf("%s:%d:id", file.Path, lineNum)),
 				RuleID:      secretCheckID,
@@ -248,9 +247,9 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 				Category:    finding.CategorySecrets,
 				Severity:    finding.SeverityMedium,
 				Confidence:  finding.ConfidenceMedium,
-				Title:       "Potential AWS Access Key ID committed to repository",
-				Description: fmt.Sprintf("An AWS Access Key ID ('%s...') was identified in file content. This is a credential identifier and does not by itself grant access without the secret key. Hammerhead did not establish that a corresponding secret key is present in this file.", m.keyID[:4]),
-				Remediation: "Verify whether this Access Key ID is active in the AWS IAM Console. If in use, ensure secret credentials are provided securely via environment variables or a secrets manager (e.g. AWS Secrets Manager or Vault) rather than committed files.",
+				Title:       "Potential AWS Access Key ID detected in file content",
+				Description: fmt.Sprintf("An AWS-shaped Access Key ID ('%s...') was detected in file content, without a supported non-example secret assignment detected in the same file. The identifier alone does not grant access. Validity, activity, tracking, exposure, and compromise were not established.", m.keyID[:4]),
+				Remediation: "Review whether this value is a real credential identifier and whether related secret material is handled securely. Determine whether any sensitive material was exposed before deciding on credential rotation or other recovery steps.",
 				Path:        file.Path,
 				Line:        lineNum,
 				Evidence:    redactedKey,

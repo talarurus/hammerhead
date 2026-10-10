@@ -15,7 +15,7 @@ import (
 const (
 	gitignoreCheckID      = "GIT-001"
 	gitignoreCheckName    = "gitignore-hygiene"
-	gitignoreCheckVersion = "0.1.0"
+	gitignoreCheckVersion = "0.2.0"
 )
 
 // requiredPatternGroup defines a group of sensitive patterns where at least
@@ -30,20 +30,21 @@ type requiredPatternGroup struct {
 var standardHygieneGroups = []requiredPatternGroup{
 	{
 		categoryName: "Environment files",
-		description:  "Environment variable configurations often contain live API tokens, database credentials, and secrets",
+		description:  "Environment configurations may contain sensitive values",
 		patterns:     []string{".env", "*.env", ".env.*", ".env*", ".env.local"},
 		recommended:  ".env",
 	},
 	{
 		categoryName: "Private keys",
-		description:  "Cryptographic private keys grant system access and should never be staged",
+		description:  "Files named like private keys may contain sensitive material",
 		patterns:     []string{"*.key", "id_rsa", "id_ed25519", "id_*", "*.pkcs12", "*.p12", "*.pfx"},
 		recommended:  "*.key, id_rsa, id_ed25519",
 	},
 }
 
-// GitignoreCheck inspects the repository's .gitignore file to verify that
-// common sensitive file patterns (e.g. .env, private keys) are excluded.
+// GitignoreCheck looks for supported textual patterns in the root .gitignore.
+// It does not evaluate Git's effective ignore behavior, including negations,
+// nested/global ignore files, or tracking state.
 //
 // Important design considerations:
 //   - A .gitignore entry alone does NOT guarantee a secret is safe; already-tracked
@@ -56,7 +57,7 @@ func (c *GitignoreCheck) Meta() Meta {
 		ID:          gitignoreCheckID,
 		Name:        gitignoreCheckName,
 		Category:    finding.CategoryGit,
-		Description: "Checks that .gitignore excludes common sensitive files such as environment configurations and private keys",
+		Description: "Looks for supported textual ignore patterns for environment files and private-key filenames in the root .gitignore",
 		Version:     gitignoreCheckVersion,
 	}
 }
@@ -84,8 +85,8 @@ func (c *GitignoreCheck) Run(ctx context.Context, sc *ScanContext) error {
 			Severity:    finding.SeverityLow,
 			Confidence:  finding.ConfidenceHigh,
 			Title:       "Missing .gitignore file",
-			Description: "No .gitignore file was found at the repository root. Without a .gitignore file, local environment files, private keys, and build artifacts are at high risk of being inadvertently committed.",
-			Remediation: "Create a .gitignore file at the repository root and add standard exclusions for environment files (.env), private keys (*.key, id_rsa), and build artifacts.",
+			Description: "No .gitignore file was found at the audited root. Other ignore sources and Git tracking state were not evaluated by this check; this does not establish which files Git ignores.",
+			Remediation: "Review the project's ignore policy. If needed, create a root .gitignore with appropriate patterns for local environment files, private-key files, and build artifacts. Verify effective ignore behavior and review already-tracked files separately.",
 			Path:        ".gitignore",
 			Evidence:    "File not found",
 			Source:      "hammerhead",
@@ -156,14 +157,14 @@ func (c *GitignoreCheck) Run(ctx context.Context, sc *ScanContext) error {
 
 	for i, group := range standardHygieneGroups {
 		if !matchedGroups[i] {
-			title := fmt.Sprintf("Sensitive pattern missing from .gitignore: %s", group.categoryName)
+			title := fmt.Sprintf("Supported textual ignore pattern not found: %s", group.categoryName)
 			desc := fmt.Sprintf(
-				"The repository's .gitignore file does not exclude %s (%s). Note: adding patterns to .gitignore only prevents untracked files from being staged; files that are already tracked by Git remain tracked.",
+				"No supported textual pattern for %s was found in the root .gitignore. %s. This heuristic does not evaluate Git's effective ignore behavior, other ignore sources, negations, or tracking state.",
 				strings.ToLower(group.categoryName),
 				group.description,
 			)
 			remedy := fmt.Sprintf(
-				"Add '%s' to .gitignore. If any such files are already tracked in version control, untrack them using 'git rm --cached <file>' before committing.",
+				"Review whether '%s' suits this project's ignore policy and add appropriate patterns if needed. Verify effective ignore behavior. If a sensitive file is already tracked and should remain local, review untracking it with 'git rm --cached <file>'; ignore patterns alone do not untrack files.",
 				group.recommended,
 			)
 
@@ -178,7 +179,7 @@ func (c *GitignoreCheck) Run(ctx context.Context, sc *ScanContext) error {
 				Description: desc,
 				Remediation: remedy,
 				Path:        ".gitignore",
-				Evidence:    fmt.Sprintf("Missing rule for: %s", group.recommended),
+				Evidence:    fmt.Sprintf("Supported textual pattern not found for: %s", group.recommended),
 				Source:      "hammerhead",
 				CheckVer:    gitignoreCheckVersion,
 			})

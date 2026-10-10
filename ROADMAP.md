@@ -20,7 +20,7 @@ The focus of V0.1 was establishing a secure, fast, and reliable single-binary CL
 - [x] Foundational test harness with adversarial fixtures and race detection
 
 ### Milestone 2: Native Repository Hygiene & Hardening
-- [x] **Large File Detection (`FILE-002`)**: Detect committed binaries or oversized blobs exceeding configurable limits (`--max-file-size`).
+- [x] **Large File Detection (`FILE-002`)**: Detect files in the audited directory exceeding configurable size thresholds (`--max-file-size`).
 - [x] **Gitignore Hygiene Check (`GIT-001`)**: Verify common sensitive patterns (`.env`, `*.key`, `id_rsa`) are properly excluded without penalizing benign public certificates (`*.pem`).
 - [x] **Repository Health Check (`GIT-002`)**: Inspect repository status, detached HEAD, and uncommitted modification states.
 - [x] **Documentation & Governance Check (`PROJ-001`)**: Detect presence of `README.md` and `LICENSE`.

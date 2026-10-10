@@ -28,13 +28,13 @@ func sampleScanResult() *engine.ScanResult {
 				Category:    finding.CategoryFiles,
 				Severity:    finding.SeverityHigh,
 				Confidence:  finding.ConfidenceHigh,
-				Title:       "SSH private key committed",
-				Description: "An SSH key was found committed to the repository.",
-				Remediation: "Remove the file and rotate keys.",
+				Title:       "Potential SSH private key file",
+				Description: "The filename matches id_rsa, a name commonly used for SSH private keys. This is a filename-only match; contents were not inspected.",
+				Remediation: "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 				Path:        "keys/id_rsa",
 				Evidence:    "id_rsa",
 				Source:      "hammerhead",
-				CheckVer:    "0.1.0",
+				CheckVer:    "0.2.0",
 			},
 			{
 				ID:          "FILE-001-5678",
@@ -43,13 +43,13 @@ func sampleScanResult() *engine.ScanResult {
 				Category:    finding.CategoryFiles,
 				Severity:    finding.SeverityMedium,
 				Confidence:  finding.ConfidenceHigh,
-				Title:       "Environment file committed",
-				Description: "A .env file was found.",
-				Remediation: "Add .env to .gitignore.",
+				Title:       "Potential environment configuration file",
+				Description: "The filename matches a supported .env naming pattern, which may indicate environment configuration. This is a filename-only match; contents were not inspected.",
+				Remediation: "Review the actual contents. If sensitive information is present, keep it outside version control and add an appropriate ignore pattern. Determine whether exposure occurred before deciding on credential rotation or other recovery steps.",
 				Path:        ".env",
 				Evidence:    ".env",
 				Source:      "hammerhead",
-				CheckVer:    "0.1.0",
+				CheckVer:    "0.2.0",
 			},
 		},
 	}
@@ -76,7 +76,7 @@ func TestTerminalReporter_WithFindings(t *testing.T) {
 		"Checks run:  1",
 		"HIGH",
 		"MEDIUM",
-		"[FILE-001] SSH private key committed",
+		"[FILE-001] Potential SSH private key file",
 		"Location:     keys/id_rsa",
 		"Why it matters:",
 		"Remediation:",
@@ -301,10 +301,10 @@ func TestTerminalReporter_QuietMode(t *testing.T) {
 	}
 
 	// Must contain compact lines
-	if !strings.Contains(out, "[HIGH] [FILE-001] keys/id_rsa SSH private key committed") {
+	if !strings.Contains(out, "[HIGH] [FILE-001] keys/id_rsa Potential SSH private key file") {
 		t.Errorf("quiet mode missing compact finding line: %s", out)
 	}
-	if !strings.Contains(out, "[MEDIUM] [FILE-001] .env Environment file committed") {
+	if !strings.Contains(out, "[MEDIUM] [FILE-001] .env Potential environment configuration file") {
 		t.Errorf("quiet mode missing compact finding line: %s", out)
 	}
 }

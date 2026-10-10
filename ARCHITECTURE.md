@@ -135,9 +135,9 @@ Auditing untrusted repositories poses specific adversarial threats. The engine m
 type FindingClass string
 
 const (
-    ClassSecurity FindingClass = "security" // Active credential exposure, sensitive files, direct security risks
+    ClassSecurity FindingClass = "security" // Potential security risks from supported content or filename patterns
     ClassHygiene  FindingClass = "hygiene"  // Best practices, gitignore coverage, README/LICENSE, large files
-    ClassInfo     FindingClass = "info"     // Project runtime context, clean worktree status
+    ClassInfo     FindingClass = "info"     // Project ecosystem hints, dirty worktree or detached HEAD observations
 )
 
 type Finding struct {
@@ -160,13 +160,13 @@ type Finding struct {
 
 ### Design Rationales
 - **Finding Classification (`Class`)**:
-  - `ClassSecurity`: True security risks (committed private keys, exposed credential pairs, `.env` files). Only findings in this class influence the overall `Security risk` level and trigger CI failure thresholds (`--fail-on`).
+  - `ClassSecurity`: Potential security risks from private-key headers, AWS-shaped ID/secret co-occurrence, and sensitive filename patterns. These observations do not establish credential validity, matching, activity, commitment, exposure, or compromise. Only findings in this class influence the overall `Security risk` level and trigger CI failure thresholds (`--fail-on`).
   - `ClassHygiene`: Repository hygiene and governance (missing README/LICENSE, missing `.gitignore` rules, large files). Important for developer quality, but never flagged as a security vulnerability.
   - `ClassInfo`: Informational project metadata (detected runtimes, worktree modification status).
-- **Deterministic ID Generation**: `GenerateID(ruleID, path)` hashes `ruleID:path` with SHA-256 (truncated to 8 hex characters). This provides consistent tracking across successive audit runs and simplifies suppression.
+- **Deterministic ID Generation**: `GenerateID(ruleID, path)` hashes `ruleID:path` with SHA-256 (truncated to 8 hex characters). The same inputs produce the same short ID; collisions are possible and findings are not deduplicated by ID.
 - **Severity vs Confidence Separation**:
   - `Severity` indicates potential business impact (`Critical`, `High`, `Medium`, `Low`, `Info`).
-  - `Confidence` indicates analytical certainty (`High`, `Medium`, `Low`).
+  - `Confidence` describes certainty in the supported observation or heuristic (`High`, `Medium`, `Low`), not credential verification or exposure.
 - **Complete Secret Redaction**: Evidence fields never contain raw credentials. Secret keys are completely redacted (`AKIA**************** [SECRET KEY REDACTED]`).
 - **Mandatory Remediation**: Every check must define a concrete, step-by-step remediation path.
 

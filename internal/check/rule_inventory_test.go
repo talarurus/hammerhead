@@ -96,79 +96,79 @@ func TestCurrentRuleVariants(t *testing.T) {
 			variantKey: "ssh-rsa",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("id_rsa") },
-			verify:     verifyFinding("FILE-001", "SSH private key", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential SSH private key file", finding.SeverityHigh),
 		},
 		{
 			variantKey: "ssh-dsa",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("id_dsa") },
-			verify:     verifyFinding("FILE-001", "SSH private key (DSA)", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential SSH private key file (DSA)", finding.SeverityHigh),
 		},
 		{
 			variantKey: "ssh-ecdsa",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("id_ecdsa") },
-			verify:     verifyFinding("FILE-001", "SSH private key (ECDSA)", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential SSH private key file (ECDSA)", finding.SeverityHigh),
 		},
 		{
 			variantKey: "ssh-ed25519",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("id_ed25519") },
-			verify:     verifyFinding("FILE-001", "SSH private key (Ed25519)", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential SSH private key file (Ed25519)", finding.SeverityHigh),
 		},
 		{
 			variantKey: "pem-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("cert.pem") },
-			verify:     verifyFinding("FILE-001", "PEM-encoded key or certificate", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential PEM key or certificate file", finding.SeverityHigh),
 		},
 		{
 			variantKey: "key-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("server.key") },
-			verify:     verifyFinding("FILE-001", "Private key file", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential private key file", finding.SeverityHigh),
 		},
 		{
 			variantKey: "pkcs12-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("cert.p12") },
-			verify:     verifyFinding("FILE-001", "PKCS#12 keystore", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential PKCS#12 keystore file", finding.SeverityHigh),
 		},
 		{
 			variantKey: "java-keystore-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("app.jks") },
-			verify:     verifyFinding("FILE-001", "Java keystore", finding.SeverityHigh),
+			verify:     verifyFinding("FILE-001", "Potential Java keystore file", finding.SeverityHigh),
 		},
 		{
 			variantKey: "env-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile(".env.production") },
-			verify:     verifyFinding("FILE-001", "Environment configuration file", finding.SeverityMedium),
+			verify:     verifyFinding("FILE-001", "Potential environment configuration file", finding.SeverityMedium),
 		},
 		{
 			variantKey: "htpasswd-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile(".htpasswd") },
-			verify:     verifyFinding("FILE-001", "Apache password file", finding.SeverityMedium),
+			verify:     verifyFinding("FILE-001", "Potential Apache password file", finding.SeverityMedium),
 		},
 		{
 			variantKey: "netrc-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile(".netrc") },
-			verify:     verifyFinding("FILE-001", "Netrc credentials file", finding.SeverityMedium),
+			verify:     verifyFinding("FILE-001", "Potential Netrc credentials file", finding.SeverityMedium),
 		},
 		{
 			variantKey: "pgpass-file",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile(".pgpass") },
-			verify:     verifyFinding("FILE-001", "PostgreSQL password file", finding.SeverityMedium),
+			verify:     verifyFinding("FILE-001", "Potential PostgreSQL password file", finding.SeverityMedium),
 		},
 		{
 			variantKey: "package-manager-config",
 			checkFunc:  func() check.Check { return &check.SensitiveFileCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile(".npmrc") },
-			verify:     verifyFinding("FILE-001", "Package manager credentials", finding.SeverityMedium),
+			verify:     verifyFinding("FILE-001", "Potential package manager credentials file", finding.SeverityMedium),
 		},
 		{
 			variantKey: "credentials-name",
@@ -192,7 +192,7 @@ func TestCurrentRuleVariants(t *testing.T) {
 					Files: []check.FileInfo{{Path: "big.bin", Size: 60 * 1024 * 1024}}, // > 50MB
 				}
 			},
-			verify: verifyFinding("FILE-002", "Large file committed to repository", finding.SeverityLow),
+			verify: verifyFinding("FILE-002", "Large file in audited directory", finding.SeverityLow),
 		},
 
 		// === GIT-001 ===
@@ -212,7 +212,7 @@ func TestCurrentRuleVariants(t *testing.T) {
 				sc.Inventory = &fs.Inventory{RootGitignore: fs.PresencePresent}
 				return sc
 			},
-			verify: verifyFinding("GIT-001", "Sensitive pattern missing from .gitignore: Environment files", finding.SeverityLow),
+			verify: verifyFinding("GIT-001", "Supported textual ignore pattern not found: Environment files", finding.SeverityLow),
 		},
 		{
 			variantKey: "missing-key-pattern",
@@ -222,7 +222,7 @@ func TestCurrentRuleVariants(t *testing.T) {
 				sc.Inventory = &fs.Inventory{RootGitignore: fs.PresencePresent}
 				return sc
 			},
-			verify: verifyFinding("GIT-001", "Sensitive pattern missing from .gitignore: Private keys", finding.SeverityLow),
+			verify: verifyFinding("GIT-001", "Supported textual ignore pattern not found: Private keys", finding.SeverityLow),
 		},
 
 		// === GIT-002 ===
@@ -334,13 +334,13 @@ func TestCurrentRuleVariants(t *testing.T) {
 			setupSC: func(t *testing.T) *check.ScanContext {
 				return scWithFileContent("test.txt", "-----BEGIN RSA PRIVATE KEY-----\n")
 			},
-			verify: verifyFinding("SEC-001", "Cryptographic private key in file content", finding.SeverityHigh),
+			verify: verifyFinding("SEC-001", "Supported private-key header detected", finding.SeverityHigh),
 		},
 		{
 			variantKey: "aws-id",
 			checkFunc:  func() check.Check { return &check.SecretPatternCheck{} },
 			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFileContent("test.txt", "AKIA1234567890123456") },
-			verify:     verifyFinding("SEC-001", "Potential AWS Access Key ID committed to repository", finding.SeverityMedium),
+			verify:     verifyFinding("SEC-001", "Potential AWS Access Key ID detected in file content", finding.SeverityMedium),
 		},
 		{
 			variantKey: "aws-id-secret-cooccurrence",
@@ -348,7 +348,7 @@ func TestCurrentRuleVariants(t *testing.T) {
 			setupSC: func(t *testing.T) *check.ScanContext {
 				return scWithFileContent("test.txt", "AKIA1234567890123456\naws_secret_access_key=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCD\n")
 			},
-			verify: verifyFinding("SEC-001", "AWS credential pair (Access Key and Secret Key) committed to repository", finding.SeverityCritical),
+			verify: verifyFinding("SEC-001", "AWS-shaped ID and secret assignment in the same file", finding.SeverityCritical),
 		},
 	}
 
@@ -396,8 +396,8 @@ func TestCurrentRuleVariants(t *testing.T) {
 		if len(f) != 1 {
 			t.Fatalf("Expected 1 finding for my_secret_key.pem, got %d", len(f))
 		}
-		if f[0].Title != "PEM-encoded key or certificate" {
-			t.Errorf("Expected priority match 'PEM-encoded key or certificate', got %q", f[0].Title)
+		if f[0].Title != "Potential PEM key or certificate file" {
+			t.Errorf("Expected priority match 'Potential PEM key or certificate file', got %q", f[0].Title)
 		}
 	})
 }

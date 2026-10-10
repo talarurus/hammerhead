@@ -130,8 +130,8 @@ func TestSecretPatternCheck_AWSCredentialPair(t *testing.T) {
 	if f.Confidence != finding.ConfidenceHigh {
 		t.Errorf("expected ConfidenceHigh, got %v", f.Confidence)
 	}
-	if !strings.Contains(f.Title, "AWS credential pair") {
-		t.Errorf("expected title to indicate credential pair, got %q", f.Title)
+	if !strings.Contains(f.Title, "AWS-shaped ID and secret assignment in the same file") {
+		t.Errorf("expected title to indicate same-file co-occurrence, got %q", f.Title)
 	}
 	// Verify redaction: secret MUST be completely omitted/redacted from evidence and description
 	if strings.Contains(f.Evidence, mockSecret) {

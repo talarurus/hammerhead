@@ -10,7 +10,7 @@ import (
 const (
 	largeFileCheckID      = "FILE-002"
 	largeFileCheckName    = "large-file-detection"
-	largeFileCheckVersion = "0.1.0"
+	largeFileCheckVersion = "0.2.0"
 
 	// DefaultLargeFileThreshold is 50 MB (Git warns at 50 MB and hard-blocks at 100 MB on GitHub).
 	DefaultLargeFileThreshold int64 = 50 * 1024 * 1024
@@ -18,9 +18,8 @@ const (
 
 // LargeFileCheck detects files exceeding a configurable size threshold.
 //
-// Committing large files to Git bloats repository history, degrades clone/fetch
-// performance, and frequently indicates accidentally committed datasets,
-// media files, or build artifacts.
+// A size observation does not establish whether a file is tracked, committed,
+// pushed, or included in repository history.
 //
 // This check is deterministic and memory-safe: it inspects FileInfo.Size
 // recorded during traversal and never reads file contents into memory.
@@ -32,7 +31,7 @@ func (c *LargeFileCheck) Meta() Meta {
 		ID:          largeFileCheckID,
 		Name:        largeFileCheckName,
 		Category:    finding.CategoryFiles,
-		Description: "Detects repository files exceeding size thresholds to prevent repository bloat and accidental asset commits",
+		Description: "Detects files in the audited directory exceeding the configured size threshold",
 		Version:     largeFileCheckVersion,
 	}
 }
@@ -69,9 +68,9 @@ func (c *LargeFileCheck) Run(ctx context.Context, sc *ScanContext) error {
 				Category:    finding.CategoryFiles,
 				Severity:    finding.SeverityLow,
 				Confidence:  finding.ConfidenceHigh,
-				Title:       "Large file committed to repository",
-				Description: fmt.Sprintf("A file of %.2f MB was found. Large files bloat Git history, increase clone times, and often indicate accidentally committed binaries, datasets, or build artifacts.", fileSizeMB),
-				Remediation: "Remove the file from Git history using git-filter-repo or BFG Repo-Cleaner, add the file or pattern to .gitignore, and consider using Git LFS or external object storage.",
+				Title:       "Large file in audited directory",
+				Description: fmt.Sprintf("A file of %.2f MB was found in the audited directory, exceeding the configured size threshold. This size observation does not establish whether the file is tracked, committed, pushed, or included in repository history.", fileSizeMB),
+				Remediation: "Review whether the file belongs in version control. If it should remain local, add an appropriate ignore pattern and separately review any existing tracking. If it must be shared, consider Git LFS or external object storage.",
 				Path:        file.Path,
 				Evidence:    evidence,
 				Source:      "hammerhead",
