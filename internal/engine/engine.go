@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
@@ -350,12 +351,12 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 				if existing, ok := checkReportedReasons[r.Code]; ok {
 					existing.Count += r.Count
 					for _, ex := range r.Examples {
-						if len(existing.Examples) < limits.MaxExamplesPerReason {
-							existing.Examples = append(existing.Examples, ex)
-						}
+						existing.Examples = scanstate.RetainExample(existing.Examples, ex, limits.MaxExamplesPerReason)
 					}
 				} else {
 					cp := r
+					cp.Examples = slices.Clone(r.Examples)
+					slices.Sort(cp.Examples)
 					checkReportedReasons[r.Code] = &cp
 				}
 			}
@@ -524,9 +525,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			if cr.Code == code {
 				result.Coverage.Reasons[i].Count += r.Count
 				for _, ex := range r.Examples {
-					if len(result.Coverage.Reasons[i].Examples) < limits.MaxExamplesPerReason {
-						result.Coverage.Reasons[i].Examples = append(result.Coverage.Reasons[i].Examples, ex)
-					}
+					result.Coverage.Reasons[i].Examples = scanstate.RetainExample(result.Coverage.Reasons[i].Examples, ex, limits.MaxExamplesPerReason)
 				}
 				found = true
 				break
@@ -537,9 +536,8 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
-	sort.Slice(result.Coverage.Reasons, func(i, j int) bool {
-		return result.Coverage.Reasons[i].Code < result.Coverage.Reasons[j].Code
-	})
+	scanstate.SortCoverage(&result.Coverage)
+	slices.SortFunc(result.Diagnostics, scanstate.CompareDiagnostic)
 
 	omitted := collector.DiagnosticOmitted()
 	if walker.SkippedOmitted() > 0 {

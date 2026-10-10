@@ -424,6 +424,9 @@ func (w *SafeWalker) walkDir(ctx context.Context, dirF *os.File, chain []dirEntr
 	}
 	var children []child
 
+	// Select skip samples only after a complete bounded listing. Over-cap
+	// listings above are discarded rather than traversed from a readdir prefix.
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, e := range entries {
 
 		name := e.Name()
@@ -622,6 +625,20 @@ func (w *SafeWalker) walkDir(ctx context.Context, dirF *os.File, chain []dirEntr
 func (w *SafeWalker) Skipped() []SkippedEntry {
 	res := make([]SkippedEntry, len(w.skipped))
 	copy(res, w.skipped)
+	sort.Slice(res, func(i, j int) bool {
+		a, b := res[i], res[j]
+		ap, bp := strings.ReplaceAll(a.Path, "\\", "/"), strings.ReplaceAll(b.Path, "\\", "/")
+		if ap != bp {
+			return ap < bp
+		}
+		if a.Category != b.Category {
+			return a.Category < b.Category
+		}
+		if a.Reason != b.Reason {
+			return a.Reason < b.Reason
+		}
+		return a.Path < b.Path
+	})
 	return res
 }
 

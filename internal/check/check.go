@@ -96,9 +96,7 @@ func (c *Coverage) AddReason(code scanstate.ReasonCode, maxExamples int, example
 		if r.Code == code {
 			c.Reasons[i].Count++
 			for _, ex := range examples {
-				if len(c.Reasons[i].Examples) < maxExamples {
-					c.Reasons[i].Examples = append(c.Reasons[i].Examples, ex)
-				}
+				c.Reasons[i].Examples = scanstate.RetainExample(c.Reasons[i].Examples, ex, maxExamples)
 			}
 			return
 		}
@@ -108,9 +106,7 @@ func (c *Coverage) AddReason(code scanstate.ReasonCode, maxExamples int, example
 		Count: 1,
 	}
 	for _, ex := range examples {
-		if len(r.Examples) < maxExamples {
-			r.Examples = append(r.Examples, ex)
-		}
+		r.Examples = scanstate.RetainExample(r.Examples, ex, maxExamples)
 	}
 	c.Reasons = append(c.Reasons, r)
 }

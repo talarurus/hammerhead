@@ -113,11 +113,10 @@ func (c *ProjectDetectCheck) Run(ctx context.Context, sc *ScanContext) error {
 
 		base := filepath.Base(file.Path)
 		for _, sig := range ecosystemSignatures {
-			if _, alreadyFound := detected[sig.ecosystem]; alreadyFound {
-				continue
-			}
 			if sig.match(file.Path, base) {
-				detected[sig.ecosystem] = file.Path
+				if current, found := detected[sig.ecosystem]; !found || file.Path < current {
+					detected[sig.ecosystem] = file.Path
+				}
 			}
 		}
 	}
@@ -126,7 +125,12 @@ func (c *ProjectDetectCheck) Run(ctx context.Context, sc *ScanContext) error {
 		return nil
 	}
 
-	for eco, manifestPath := range detected {
+	for _, sig := range ecosystemSignatures {
+		eco := sig.ecosystem
+		manifestPath, found := detected[eco]
+		if !found {
+			continue
+		}
 		title := fmt.Sprintf("Project runtime: %s", eco)
 		desc := fmt.Sprintf("Identified %s project ecosystem from manifest file '%s'.", eco, manifestPath)
 

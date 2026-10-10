@@ -185,7 +185,13 @@ func TestGitRunner_StubbornDescendantShutdown(t *testing.T) {
 				} else if mode == "stderr" {
 					wantErr = git.ErrStderrLimit
 				}
-				if err := os.WriteFile(filepath.Join(dir, ".overflow"), []byte(stream), 0600); err != nil {
+				// Publish only after WriteFile has written and closed the trigger.
+				// The helper polls .overflow and must never see a partial value.
+				trigger := filepath.Join(dir, ".overflow.tmp")
+				if err := os.WriteFile(trigger, []byte(stream), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Rename(trigger, filepath.Join(dir, ".overflow")); err != nil {
 					t.Fatal(err)
 				}
 				waitReview7File(t, dir, ".parent_term_received")

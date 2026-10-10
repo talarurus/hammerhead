@@ -6,6 +6,7 @@
 package finding
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -188,12 +189,76 @@ func GenerateID(ruleID, path string) string {
 	return fmt.Sprintf("%s-%x", ruleID, h[:4])
 }
 
-// BySeverity implements sort.Interface, sorting findings by severity descending
-// (critical first, info last).
+// CompareCanonical orders findings by severity descending, then class, rule,
+// slash-normalized path, numeric line, ID, title and remaining scalar fields.
+// Raw paths break normalized-path ties without changing stored paths or IDs.
+func CompareCanonical(a, b Finding) int {
+	if n := cmp.Compare(b.Severity, a.Severity); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(classRank(a.Class), classRank(b.Class)); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.RuleID, b.RuleID); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(strings.ReplaceAll(a.Path, "\\", "/"), strings.ReplaceAll(b.Path, "\\", "/")); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Line, b.Line); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.ID, b.ID); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Title, b.Title); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Class, b.Class); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Category, b.Category); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Confidence, b.Confidence); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Description, b.Description); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Remediation, b.Remediation); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Evidence, b.Evidence); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.Source, b.Source); n != 0 {
+		return n
+	}
+	if n := cmp.Compare(a.CheckVer, b.CheckVer); n != 0 {
+		return n
+	}
+	return cmp.Compare(a.Path, b.Path)
+}
+
+func classRank(c FindingClass) int {
+	switch c {
+	case ClassSecurity:
+		return 0
+	case ClassHygiene:
+		return 1
+	case ClassInfo:
+		return 2
+	default:
+		return 3
+	}
+}
+
+// BySeverity implements sort.Interface using the canonical finding order.
 type BySeverity []Finding
 
 func (f BySeverity) Len() int           { return len(f) }
-func (f BySeverity) Less(i, j int) bool { return f[i].Severity > f[j].Severity }
+func (f BySeverity) Less(i, j int) bool { return CompareCanonical(f[i], f[j]) < 0 }
 func (f BySeverity) Swap(i, j int)      { f[i], f[j] = f[j], f[i] }
 
 // CountBySeverity returns a count of findings at each severity level.

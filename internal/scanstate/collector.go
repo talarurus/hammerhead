@@ -2,6 +2,7 @@ package scanstate
 
 import (
 	"errors"
+	"sort"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 )
@@ -102,13 +103,6 @@ func (c *Collector) AddDiagnostic(d Diagnostic) {
 		c.reasonCounts[d.Code]++
 	}
 
-	if c.diagTotal >= c.limits.MaxDiagnosticSamples || c.diagExamples[d.Code] >= c.limits.MaxExamplesPerReason {
-		if c.diagOmitted < maxInt {
-			c.diagOmitted++
-		}
-		return
-	}
-
 	// Payload limits for diagnostic fields
 	path := d.Path
 	if len(path) > c.limits.MaxDiagnosticPath {
@@ -121,8 +115,42 @@ func (c *Collector) AddDiagnostic(d Diagnostic) {
 	d.Path = path
 	d.SafeMessage = msg
 
-	c.diagnostics = append(c.diagnostics, d)
-	c.diagTotal++
+	// Retain the smallest samples under both existing caps, regardless of arrival
+	// order. Payload truncation precedes comparison so serialized ties are equal.
+	if c.limits.MaxDiagnosticSamples <= 0 || c.limits.MaxExamplesPerReason <= 0 {
+		if c.diagOmitted < maxInt {
+			c.diagOmitted++
+		}
+		return
+	}
+	remove := -1
+	if c.diagExamples[d.Code] >= c.limits.MaxExamplesPerReason {
+		for i := len(c.diagnostics) - 1; i >= 0; i-- {
+			if c.diagnostics[i].Code == d.Code {
+				remove = i
+				break
+			}
+		}
+	} else if c.diagTotal >= c.limits.MaxDiagnosticSamples {
+		remove = len(c.diagnostics) - 1
+	}
+	if remove >= 0 {
+		if c.diagOmitted < maxInt {
+			c.diagOmitted++
+		}
+		if CompareDiagnostic(d, c.diagnostics[remove]) >= 0 {
+			return
+		}
+		c.diagExamples[c.diagnostics[remove].Code]--
+		copy(c.diagnostics[remove:], c.diagnostics[remove+1:])
+		c.diagnostics = c.diagnostics[:len(c.diagnostics)-1]
+	} else {
+		c.diagTotal++
+	}
+	i := sort.Search(len(c.diagnostics), func(i int) bool { return CompareDiagnostic(c.diagnostics[i], d) >= 0 })
+	c.diagnostics = append(c.diagnostics, Diagnostic{})
+	copy(c.diagnostics[i+1:], c.diagnostics[i:len(c.diagnostics)-1])
+	c.diagnostics[i] = d
 	c.diagExamples[d.Code]++
 }
 
