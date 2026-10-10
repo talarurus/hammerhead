@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/finding"
+	myfs "github.com/talarurus/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 // TestChecks_CancelDuringLoop verifies that all checks respect context cancellation

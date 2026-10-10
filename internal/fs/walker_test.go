@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"context"
-	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/fs"
 	"syscall"
 )
 

@@ -3,7 +3,7 @@ package fs_test
 import (
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/fs"
 )
 
 func TestParseByteSize_Valid(t *testing.T) {

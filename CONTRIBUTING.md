@@ -12,7 +12,7 @@ Thank you for your interest in contributing to Hammerhead. We welcome contributi
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/ammaarrehman/hammerhead.git
+   git clone https://github.com/talarurus/hammerhead.git
    cd hammerhead
    ```
 

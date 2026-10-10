@@ -3,8 +3,8 @@ package check_test
 import (
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 func TestSensitiveFileCheck_Detection(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/reporter"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/reporter"
 )
 
 func TestJSON_Escaping(t *testing.T) {

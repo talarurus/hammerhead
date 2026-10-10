@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 type dummyCheck struct {

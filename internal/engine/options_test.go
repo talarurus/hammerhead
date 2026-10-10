@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/fs"
 )
 
 func TestEngine_ThresholdDoesNotLeak(t *testing.T) {

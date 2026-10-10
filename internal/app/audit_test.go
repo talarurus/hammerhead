@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/app"
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/app"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 func TestApp_InvalidRoot(t *testing.T) {

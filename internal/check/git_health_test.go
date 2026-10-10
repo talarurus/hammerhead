@@ -3,8 +3,8 @@ package check_test
 import (
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 func TestGitHealthCheck_NonGit(t *testing.T) {

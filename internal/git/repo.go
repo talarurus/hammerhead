@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 var ErrMalformedGitOutput = errors.New("malformed git metadata output")

@@ -32,7 +32,7 @@ func TestGitBoundary_NoRawMetadataOrCheckExecution(t *testing.T) {
 				t.Fatal(err)
 			}
 			switch name {
-			case "os", "os/exec", "io/ioutil", "syscall", "golang.org/x/sys/unix", "github.com/ammaarrehman/hammerhead/internal/git":
+			case "os", "os/exec", "io/ioutil", "syscall", "golang.org/x/sys/unix", "github.com/talarurus/hammerhead/internal/git":
 				t.Errorf("check has filesystem/process authority: %s imports %s", path, name)
 			}
 		}

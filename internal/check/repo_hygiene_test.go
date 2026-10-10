@@ -3,9 +3,9 @@ package check_test
 import (
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/finding"
+	myfs "github.com/talarurus/hammerhead/internal/fs"
 )
 
 func TestRepoHygieneCheck_MissingBoth(t *testing.T) {

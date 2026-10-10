@@ -7,7 +7,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 func TestFindingOrder_TotalTieBreaks(t *testing.T) {

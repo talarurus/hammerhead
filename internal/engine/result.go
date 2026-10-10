@@ -1,9 +1,9 @@
 package engine
 
 import (
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/fs"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 // ScanResult holds the complete output of a scan operation.

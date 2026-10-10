@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/git"
+	"github.com/talarurus/hammerhead/internal/git"
 )
 
 // Both generations have an independent watchdog, even if the runner or the

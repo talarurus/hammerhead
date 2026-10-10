@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 // Terminal renders scan results as human-readable colored terminal output.

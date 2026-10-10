@@ -3,7 +3,7 @@
 BINARY := hammerhead
 VERSION ?= 0.1.0-dev
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-LDFLAGS := -ldflags "-X github.com/ammaarrehman/hammerhead/internal/cli.Version=$(VERSION) -X github.com/ammaarrehman/hammerhead/internal/cli.Commit=$(COMMIT)"
+LDFLAGS := -ldflags "-X github.com/talarurus/hammerhead/internal/cli.Version=$(VERSION) -X github.com/talarurus/hammerhead/internal/cli.Commit=$(COMMIT)"
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/hammerhead

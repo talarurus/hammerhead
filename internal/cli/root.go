@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ammaarrehman/hammerhead/internal/app"
 	"github.com/spf13/cobra"
+	"github.com/talarurus/hammerhead/internal/app"
 )
 
 var (

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/app"
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/reporter"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/app"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/reporter"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 func healthCoverage(t *testing.T, res *engine.ScanResult) scanstate.CheckCoverage {

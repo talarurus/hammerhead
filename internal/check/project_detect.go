@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 const (

@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/fs"
 )
 
 func TestGitignoreCheck_MissingFile(t *testing.T) {

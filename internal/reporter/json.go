@@ -7,9 +7,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 // JSON renders scan results as machine-readable JSON v0.2.

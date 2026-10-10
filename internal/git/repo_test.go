@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/git"
+	"github.com/talarurus/hammerhead/internal/git"
 )
 
 func TestDetectRepo_NonGitDir(t *testing.T) {

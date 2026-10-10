@@ -1,4 +1,4 @@
-module github.com/ammaarrehman/hammerhead
+module github.com/talarurus/hammerhead
 
 go 1.26.0
 

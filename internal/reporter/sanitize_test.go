@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/reporter"
+	"github.com/talarurus/hammerhead/internal/reporter"
 )
 
 func TestStripANSI(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/engine"
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 func TestEngine_ScanCleanRepo(t *testing.T) {

@@ -30,6 +30,18 @@
 
 ## Installation
 
+For the current development source:
+
+```sh
+git clone https://github.com/talarurus/hammerhead.git
+cd hammerhead
+go build ./cmd/hammerhead
+```
+
+The active Go module is `github.com/talarurus/hammerhead`. The historical `v0.1.0` tag retains `github.com/ammaarrehman/hammerhead`; that release cannot be installed using the new module path. The release downloads and usage examples below describe v0.1.0.
+
+### Historical v0.1.0 release
+
 Download the archive for your platform from the [v0.1.0 release](https://github.com/ammaarrehman/hammerhead/releases/tag/v0.1.0):
 
 | Platform | Archive |

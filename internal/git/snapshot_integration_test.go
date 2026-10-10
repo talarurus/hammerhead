@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ammaarrehman/hammerhead/internal/git"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/git"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 	"golang.org/x/sys/unix"
 )
 

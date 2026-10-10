@@ -2,7 +2,7 @@
 package reporter
 
 import (
-	"github.com/ammaarrehman/hammerhead/internal/engine"
+	"github.com/talarurus/hammerhead/internal/engine"
 )
 
 // Reporter formats and outputs scan results.

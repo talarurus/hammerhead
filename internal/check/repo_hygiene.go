@@ -2,9 +2,9 @@ package check
 
 import (
 	"context"
-	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
+	myfs "github.com/talarurus/hammerhead/internal/fs"
 
-	"github.com/ammaarrehman/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/finding"
 )
 
 const (

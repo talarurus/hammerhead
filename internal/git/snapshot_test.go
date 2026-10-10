@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 type snapshotRunner struct {

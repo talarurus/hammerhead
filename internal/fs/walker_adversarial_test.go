@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/fs"
 	"golang.org/x/sys/unix"
 )
 

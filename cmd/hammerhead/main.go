@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/ammaarrehman/hammerhead/internal/cli"
+	"github.com/talarurus/hammerhead/internal/cli"
 )
 
 func main() {

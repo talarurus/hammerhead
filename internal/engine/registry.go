@@ -8,7 +8,7 @@ package engine
 import (
 	"fmt"
 
-	"github.com/ammaarrehman/hammerhead/internal/check"
+	"github.com/talarurus/hammerhead/internal/check"
 )
 
 // Registry holds an explicitly assembled list of security checks.

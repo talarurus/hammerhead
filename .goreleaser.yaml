@@ -20,8 +20,8 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/ammaarrehman/hammerhead/internal/cli.Version={{ .Version }}
-      - -X github.com/ammaarrehman/hammerhead/internal/cli.Commit={{ .Commit }}
+      - -X github.com/talarurus/hammerhead/internal/cli.Version={{ .Version }}
+      - -X github.com/talarurus/hammerhead/internal/cli.Commit={{ .Commit }}
 
 archives:
   - id: hammerhead

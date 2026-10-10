@@ -9,9 +9,9 @@ import (
 	"context"
 	"io/fs"
 
-	"github.com/ammaarrehman/hammerhead/internal/finding"
-	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
-	"github.com/ammaarrehman/hammerhead/internal/scanstate"
+	"github.com/talarurus/hammerhead/internal/finding"
+	myfs "github.com/talarurus/hammerhead/internal/fs"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 // Check is the interface every security check implements.
