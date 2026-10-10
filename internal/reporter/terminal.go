@@ -103,6 +103,7 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 			t.writeln(w, "")
 			t.writeln(w, "")
 			t.writeColored(w, colorGreen, "  ✓ No findings")
+			printDiagnostics()
 		} else {
 			t.writeColored(w, colorYellow, "UNKNOWN")
 			t.writeln(w, "")

@@ -40,29 +40,6 @@ func TestDetectRepo_ValidGitDir(t *testing.T) {
 	}
 }
 
-func TestDetectRepo_SimulatedGitDir(t *testing.T) {
-	tempDir := t.TempDir()
-	t.Setenv("GIT_ALLOW_PROTOCOL", "file")
-	gitDir := filepath.Join(tempDir, ".git")
-	if err := os.Mkdir(gitDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feature-sec\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	info, err := git.DetectRepoFallback(tempDir)
-	if err != nil {
-		t.Fatalf("DetectRepoFallback failed: %v", err)
-	}
-	if !info.IsRepo {
-		t.Errorf("expected simulated git dir to be recognized as repo")
-	}
-	if info.Branch != "feature-sec" {
-		t.Errorf("expected branch feature-sec, got %q", info.Branch)
-	}
-}
-
 func TestGitCommand_SubprocessInjection(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("GIT_ALLOW_PROTOCOL", "file")

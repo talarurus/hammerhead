@@ -32,6 +32,7 @@ const (
 	ReasonInvalidRoot         ReasonCode = "invalid_root"
 	ReasonEligibleReadFailure ReasonCode = "eligible_read_failure"
 	ReasonBudgetExhaustion    ReasonCode = "budget_exhaustion"
+	ReasonGitUnavailable      ReasonCode = "git_unavailable"
 	ReasonGitTimeout          ReasonCode = "git_timeout"
 	ReasonGitFailure          ReasonCode = "git_failure"
 	ReasonCheckFailure        ReasonCode = "check_failure"

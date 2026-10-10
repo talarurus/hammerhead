@@ -174,6 +174,8 @@ func ValidateContract(result ContractResult) []error {
 		"eligible_read_failure": true,
 		"budget_exhaustion":     true,
 		"git_timeout":           true,
+		"git_failure":           true,
+		"git_unavailable":       true,
 		"check_failure":         true,
 		"traversal_failure":     true,
 	}

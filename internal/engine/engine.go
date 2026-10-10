@@ -94,40 +94,17 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
-	// Step 1: Detect Git repository.
-	gitInfo, err := git.DetectRepo(ctx, targetDir)
-	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, git.ErrGitCanceled) {
-			upgradeStatus(scanstate.StatusCancelled)
-			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
-				Stage:       "git_setup",
-				Code:        scanstate.ReasonUserCancelled,
-				SafeMessage: "Git repository detection cancelled",
-			})
-		} else if errors.Is(err, context.DeadlineExceeded) {
-			upgradeStatus(scanstate.StatusCancelled)
-			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
-				Stage:       "git_setup",
-				Code:        scanstate.ReasonDeadlineExceeded,
-				SafeMessage: "Scan cancelled due to timeout during Git detection",
-			})
-		} else if errors.Is(err, git.ErrGitTimeout) {
-			upgradeStatus(scanstate.StatusPartial)
-			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
-				Stage:       "git_setup",
-				Code:        scanstate.ReasonGitTimeout,
-				SafeMessage: "Git repository detection timed out",
-			})
-		} else {
-			upgradeStatus(scanstate.StatusPartial)
-			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
-				Stage:       "git_setup",
-				Code:        scanstate.ReasonGitFailure,
-				SafeMessage: "Git operations failed, reverting to native scan",
-			})
+	// Reject pre-cancelled requests before any root or Git access.
+	if err := ctx.Err(); err != nil {
+		result.Status = scanstate.StatusCancelled
+		code := scanstate.ReasonUserCancelled
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = scanstate.ReasonDeadlineExceeded
 		}
-		// Continue scan natively without git info
-		gitInfo = &git.RepoInfo{IsRepo: false}
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage: "setup", Code: code, SafeMessage: "Scan cancelled before root validation",
+		})
+		return result, err
 	}
 
 	absTarget, err := filepath.Abs(targetDir)
@@ -225,6 +202,36 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
+	// Collect Git once, after native root establishment. Git metadata (including
+	// external worktree metadata) is a separate, bounded capability.
+	var pendingGitDiag *scanstate.Diagnostic
+	gitInfo, gitErr := git.CollectSnapshot(ctx, walker.Root())
+	if gitErr != nil {
+		code := scanstate.ReasonGitFailure
+		message := "Git metadata collection failed; native checks remain available"
+		if ctx.Err() != nil {
+			upgradeStatus(scanstate.StatusCancelled)
+			code = scanstate.ReasonUserCancelled
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				code = scanstate.ReasonDeadlineExceeded
+			}
+			message = "Scan cancelled during Git metadata collection"
+		} else {
+			upgradeStatus(scanstate.StatusPartial)
+			if errors.Is(gitErr, git.ErrGitTimeout) {
+				code = scanstate.ReasonGitTimeout
+			}
+		}
+		pendingGitDiag = &scanstate.Diagnostic{
+			Stage: "git", RuleID: "GIT-002", Code: code, SafeMessage: message,
+		}
+	} else if gitInfo.Availability == scanstate.GitUnavailable {
+		pendingGitDiag = &scanstate.Diagnostic{
+			Stage: "git", RuleID: "GIT-002", Code: scanstate.ReasonGitUnavailable,
+			SafeMessage: "Git executable unavailable; Git health was not evaluated",
+		}
+	}
+
 	// Step 3: Initialize collector
 	// Combine sample budgets: reduce Collector's allowed samples by those already used
 	collectorLimits := limits
@@ -236,6 +243,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	collector := scanstate.NewCollector(collectorLimits)
 	if pendingTraversalDiag != nil {
 		collector.AddDiagnostic(*pendingTraversalDiag)
+	}
+	if pendingGitDiag != nil {
+		collector.AddDiagnostic(*pendingGitDiag)
 	}
 
 	aggReadBytes := int64(0)
@@ -256,13 +266,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 	// Step 4: Build ScanContext for checks.
 	sc := &check.ScanContext{
-		RepoRoot: walker.Root(),
-		Files:    toCheckFiles(walkedFiles),
-		Git: &check.GitInfo{
-			IsRepo: gitInfo.IsRepo,
-			Root:   gitInfo.Root,
-			Branch: gitInfo.Branch,
-		},
+		RepoRoot:  walker.Root(),
+		Files:     toCheckFiles(walkedFiles),
+		Git:       &gitInfo,
 		Inventory: &inv,
 		ReadFile: func(relPath string, maxSize int64) fs.ReadOutcome {
 			return guardedReader.ReadFile(ctx, relPath, fs.ReadOptions{MaxSize: maxSize})
@@ -277,6 +283,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	// Step 5: Run all checks.
 	checksRun := 0
 	var finalErr error
+	if ctx.Err() != nil {
+		finalErr = ctx.Err()
+	}
 	var emittedCancelDiag bool
 
 	checkReportedReasons := make(map[scanstate.ReasonCode]*scanstate.Reason)
@@ -403,7 +412,11 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 					break
 				}
 			}
-			if walkErr != nil || collector.Exhausted() || hasFailureReason {
+			if c.Meta().ID == "GIT-002" && !collector.Exhausted() {
+				// Git health coverage follows the snapshot; filesystem traversal
+				// cannot fabricate availability or applicability of Git work.
+				chkCov.Status = gitInfo.Status
+			} else if walkErr != nil || collector.Exhausted() || hasFailureReason {
 				upgradeStatus(scanstate.StatusPartial)
 				chkCov.Status = scanstate.CheckStatusPartial
 			} else {
@@ -448,17 +461,18 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 	result.Coverage.Policy.Exclusions = nil
 	result.Coverage.Policy.EffectiveLimits = map[string]int64{
-		"max_aggregate_native_read_bytes": limits.MaxAggregateReadBytes,
-		"max_findings_retained":           int64(limits.MaxFindings),
-		"max_diagnostic_samples":          int64(limits.MaxDiagnosticSamples),
-		"max_examples_per_reason":         int64(limits.MaxExamplesPerReason),
-		"max_diagnostic_path_bytes":       int64(limits.MaxDiagnosticPath),
-		"max_safe_message_bytes":          int64(limits.MaxSafeMessage),
-		"max_finding_path_bytes":          int64(limits.MaxFindingPath),
-		"max_evidence_bytes":              int64(limits.MaxFindingEvidence),
-		"max_title_bytes":                 int64(limits.MaxFindingTitle),
-		"max_description_bytes":           int64(limits.MaxFindingDesc),
-		"max_remediation_bytes":           int64(limits.MaxFindingRemediation),
+		"max_git_detection_ancestor_steps": int64(git.MaxDetectionAncestorSteps),
+		"max_aggregate_native_read_bytes":  limits.MaxAggregateReadBytes,
+		"max_findings_retained":            int64(limits.MaxFindings),
+		"max_diagnostic_samples":           int64(limits.MaxDiagnosticSamples),
+		"max_examples_per_reason":          int64(limits.MaxExamplesPerReason),
+		"max_diagnostic_path_bytes":        int64(limits.MaxDiagnosticPath),
+		"max_safe_message_bytes":           int64(limits.MaxSafeMessage),
+		"max_finding_path_bytes":           int64(limits.MaxFindingPath),
+		"max_evidence_bytes":               int64(limits.MaxFindingEvidence),
+		"max_title_bytes":                  int64(limits.MaxFindingTitle),
+		"max_description_bytes":            int64(limits.MaxFindingDesc),
+		"max_remediation_bytes":            int64(limits.MaxFindingRemediation),
 	}
 
 	if result.Coverage.Checks == nil {

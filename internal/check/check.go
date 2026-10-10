@@ -43,12 +43,8 @@ type FileInfo struct {
 	IsDir   bool        // True if this is a directory
 }
 
-// GitInfo holds basic Git repository metadata available to checks.
-type GitInfo struct {
-	IsRepo bool   // Whether the target is a Git repository
-	Root   string // Repository root path
-	Branch string // Current branch name
-}
+// GitInfo is the engine-collected, authority-free Git snapshot.
+type GitInfo = scanstate.GitSnapshot
 
 // ScanContext provides checks with safe, pre-validated access to repository data.
 //
@@ -65,7 +61,7 @@ type ScanContext struct {
 	// have been skipped. Binary files are included but flagged.
 	Files []FileInfo
 
-	// Git holds repository metadata, or nil for non-Git directories.
+	// Git holds an explicit metadata snapshot, including unavailable/non-applicable states.
 	Git *GitInfo
 
 	// Inventory provides facts discovered during traversal.

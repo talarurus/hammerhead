@@ -1,6 +1,7 @@
 package check_test
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"github.com/ammaarrehman/hammerhead/internal/engine"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/ammaarrehman/hammerhead/internal/git"
 )
 
 func createGitRepo(t *testing.T, makeDirty bool, detachHead bool) *check.ScanContext {
@@ -42,13 +44,11 @@ func createGitRepo(t *testing.T, makeDirty bool, detachHead bool) *check.ScanCon
 		runGit("checkout", "--detach")
 	}
 
-	return &check.ScanContext{
-		RepoRoot: dir,
-		Git: &check.GitInfo{
-			IsRepo: true,
-			Root:   dir,
-		},
+	snapshot, err := git.CollectSnapshot(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return &check.ScanContext{RepoRoot: dir, Git: &snapshot}
 }
 
 func TestDefaultRegistry_RuleInventory(t *testing.T) {

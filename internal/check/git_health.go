@@ -3,16 +3,15 @@ package check
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
-	"github.com/ammaarrehman/hammerhead/internal/git"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 const (
 	gitHealthCheckID      = "GIT-002"
 	gitHealthCheckName    = "git-health-context"
-	gitHealthCheckVersion = "0.1.0"
+	gitHealthCheckVersion = "0.2.0"
 )
 
 // GitHealthCheck reports repository context including worktree cleanliness
@@ -38,30 +37,13 @@ func (c *GitHealthCheck) Run(ctx context.Context, sc *ScanContext) error {
 		return err
 	}
 
-	if sc.Git == nil || !sc.Git.IsRepo {
+	if sc.Git == nil || sc.Git.Availability != scanstate.GitAvailable ||
+		sc.Git.Applicability != scanstate.GitRoot || sc.Git.Status != scanstate.CheckStatusCompleted {
 		return nil
 	}
+	status := sc.Git
 
-	// Only inspect worktree status if the audited directory is the root of the Git repo.
-	// When auditing a subfolder (e.g. testdata fixtures or submodules), skip whole-repo worktree status.
-	if filepath.Clean(sc.RepoRoot) != filepath.Clean(sc.Git.Root) {
-		return nil
-	}
-
-	// Do not increment file inspection counters for metadata evaluation
-
-	targetDir := sc.RepoRoot
-	if sc.Git.Root != "" {
-		targetDir = sc.Git.Root
-	}
-
-	status, err := git.GetWorktreeStatus(ctx, targetDir)
-	if err != nil {
-		// Non-fatal: if git status fails (e.g. corrupted repo), return error to scan result warnings
-		return fmt.Errorf("retrieving git status: %w", err)
-	}
-
-	if status.IsDirty {
+	if status.ModifiedCount > 0 || status.UntrackedCount > 0 {
 		evidence := fmt.Sprintf("Modified files: %d, Untracked files: %d", status.ModifiedCount, status.UntrackedCount)
 		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitHealthCheckID, "dirty-worktree"),
@@ -83,7 +65,7 @@ func (c *GitHealthCheck) Run(ctx context.Context, sc *ScanContext) error {
 		}
 	}
 
-	if status.DetachedHEAD {
+	if status.BranchState == scanstate.GitBranchDetached {
 		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitHealthCheckID, "detached-head"),
 			RuleID:      gitHealthCheckID,

@@ -20,18 +20,20 @@ var (
 	ErrStderrLimit       = errors.New("git stderr limit exceeded")
 	ErrUnsafeGitPath     = errors.New("git executable path is unsafe")
 	ErrNotARepository    = errors.New("not a git repository")
-	ErrUnbornBranch      = errors.New("unborn branch")
 	ErrGitCleanupTimeout = errors.New("git cleanup timed out")
 )
 
 // GitExitError represents a non-zero exit code from a git command.
 type GitExitError struct {
 	ExitCode int
+	Kind     error // Safe classification; raw stderr is never exposed.
 }
 
 func (e *GitExitError) Error() string {
 	return fmt.Sprintf("git exited with code %d", e.ExitCode)
 }
+
+func (e *GitExitError) Unwrap() error { return e.Kind }
 
 const (
 	CommandTimeout = 10 * time.Second
@@ -210,18 +212,10 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 	if waitErr != nil {
 		var exitErr *exec.ExitError
 		if errors.As(waitErr, &exitErr) {
-			stderrStr := strings.TrimSpace(stderrBuf.String())
-			if exitErr.ExitCode() == 128 && len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--show-toplevel" {
-				if stderrStr == "fatal: not a git repository (or any of the parent directories): .git" {
-					return stdoutBuf.String(), ErrNotARepository
-				}
+			return stdoutBuf.String(), &GitExitError{
+				ExitCode: exitErr.ExitCode(),
+				Kind:     classifyExit(args, exitErr.ExitCode(), stderrBuf.String()),
 			}
-			if exitErr.ExitCode() == 128 && len(args) >= 2 && args[0] == "rev-parse" && args[1] == "--abbrev-ref" {
-				if strings.Contains(stderrStr, "unknown revision or path not in the working tree") {
-					return stdoutBuf.String(), ErrUnbornBranch
-				}
-			}
-			return stdoutBuf.String(), &GitExitError{ExitCode: exitErr.ExitCode()}
 		}
 		return stdoutBuf.String(), fmt.Errorf("git execution failed: %w", waitErr)
 	}

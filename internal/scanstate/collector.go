@@ -91,7 +91,7 @@ func (c *Collector) AddDiagnostic(d Diagnostic) {
 	switch d.Code {
 	case ReasonUserCancelled, ReasonDeadlineExceeded, ReasonInvalidRoot,
 		ReasonEligibleReadFailure, ReasonBudgetExhaustion, ReasonGitTimeout, ReasonGitFailure,
-		ReasonCheckFailure, ReasonTraversalFailure:
+		ReasonCheckFailure, ReasonTraversalFailure, ReasonGitUnavailable:
 		// Valid code
 	default:
 		// Normalize to check_failure if unknown to prevent unbounded map growth
