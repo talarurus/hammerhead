@@ -37,7 +37,7 @@ func (c *LargeFileCheck) Meta() Meta {
 	}
 }
 
-func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) error {
+func (c *LargeFileCheck) Run(ctx context.Context, sc *ScanContext) error {
 	threshold := DefaultLargeFileThreshold
 	if sc.Options.LargeFileThresholdBytes > 0 {
 		threshold = sc.Options.LargeFileThresholdBytes
@@ -45,8 +45,17 @@ func (c *LargeFileCheck) Run(_ context.Context, sc *ScanContext) error {
 	thresholdMB := float64(threshold) / (1024 * 1024)
 
 	for _, file := range sc.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if file.IsDir {
 			continue
+		}
+
+		if sc.Coverage != nil {
+			sc.Coverage.EligibleFiles++
+			sc.Coverage.InspectedFiles++
 		}
 
 		if file.Size > threshold {

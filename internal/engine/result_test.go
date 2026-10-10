@@ -142,6 +142,11 @@ func TestEngine_CancelRetainsResult(t *testing.T) {
 	if len(res.Diagnostics) == 0 || res.Diagnostics[0].Code != scanstate.ReasonUserCancelled {
 		t.Errorf("Expected cancellation diagnostic, got %v", res.Diagnostics)
 	}
+	if len(res.Coverage.Checks) != 2 {
+		t.Errorf("Expected 2 checks in coverage, got %d", len(res.Coverage.Checks))
+	} else if string(res.Coverage.Checks[1].Status) != "not_run" {
+		t.Errorf("Expected second check to be not_run, got %s", res.Coverage.Checks[1].Status)
+	}
 	if len(res.Findings) != 1 || res.Findings[0].RuleID != "CANCEL-001" {
 		t.Errorf("Expected previous findings to be retained, got %v", res.Findings)
 	}
@@ -223,5 +228,43 @@ func TestEngine_PartialWalkRetained(t *testing.T) {
 	}
 	if len(res.Findings) != 1 || res.Findings[0].RuleID != "WALK-001" {
 		t.Errorf("Expected finding from partial walk, got %v", res.Findings)
+	}
+}
+
+type partialMockCheck struct {
+	meta check.Meta
+}
+
+func (c *partialMockCheck) Meta() check.Meta { return c.meta }
+func (c *partialMockCheck) Run(ctx context.Context, sc *check.ScanContext) error {
+	// Emit a finding
+	if err := sc.Emit(finding.Finding{RuleID: c.meta.ID, Title: "A partial finding"}); err != nil {
+		return err
+	}
+	// Add a read error reason
+	sc.Coverage.AddReason(scanstate.ReasonEligibleReadFailure, 5, "mock_file.txt")
+	return nil // Returning nil with reasons will make it Partial in engine
+}
+
+func TestEngine_CheckPartialCascades(t *testing.T) {
+	reg := engine.NewRegistry()
+	reg.Add(&partialMockCheck{meta: check.Meta{ID: "PARTIAL-001"}})
+
+	eng := engine.New(reg)
+	res, err := eng.Scan(context.Background(), ".", nil)
+	if err != nil {
+		t.Fatalf("Expected nil error, got %v", err)
+	}
+
+	if string(res.Status) != "partial" {
+		t.Errorf("Expected engine status partial, got %v", res.Status)
+	}
+
+	if len(res.Findings) != 1 || res.Findings[0].RuleID != "PARTIAL-001" {
+		t.Errorf("Expected findings to survive partial scan, got %v", res.Findings)
+	}
+
+	if len(res.Coverage.Reasons) != 1 || res.Coverage.Reasons[0].Code != scanstate.ReasonEligibleReadFailure {
+		t.Errorf("Expected engine to aggregate partial reason, got %v", res.Coverage.Reasons)
 	}
 }

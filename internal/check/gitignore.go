@@ -61,26 +61,21 @@ func (c *GitignoreCheck) Meta() Meta {
 	}
 }
 
-func (c *GitignoreCheck) Run(_ context.Context, sc *ScanContext) error {
-	// 1. Locate root .gitignore
-	// The file list check was removed since presence is evaluated through the inventory.
+func (c *GitignoreCheck) Run(ctx context.Context, sc *ScanContext) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	hasGitignore := fs.PresenceUnknown
 	if sc.Inventory != nil {
 		hasGitignore = sc.Inventory.RootGitignore
 	}
 
-	isMissing := false
-	if hasGitignore == fs.PresenceAbsent {
-		isMissing = true
-	}
-
 	if hasGitignore == fs.PresenceUnknown {
 		return nil
 	}
 
-	// If no .gitignore exists, report a single finding
-	if isMissing {
+	if hasGitignore == fs.PresenceAbsent {
 		return sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitignoreCheckID, ".gitignore"),
 			RuleID:      gitignoreCheckID,
@@ -98,21 +93,40 @@ func (c *GitignoreCheck) Run(_ context.Context, sc *ScanContext) error {
 		})
 	}
 
+	if sc.Coverage != nil {
+		sc.Coverage.EligibleFiles++
+	}
+
 	// 2. Read .gitignore
 	outcome := sc.ReadFile(".gitignore", 10*1024*1024)
+	if sc.Coverage != nil {
+		sc.Coverage.ReadBytes += int(outcome.BytesRead)
+	}
 	if outcome.Status == fs.ReadStatusBudgetExhaust {
 		return scanstate.ErrBudgetExhausted
 	}
+
 	if outcome.Status != fs.ReadStatusText {
-		return fmt.Errorf("reading .gitignore: %w", outcome.Err)
+		if sc.Coverage != nil {
+			sc.Coverage.AddReason(scanstate.ReasonEligibleReadFailure, sc.Options.MaxExamplesPerReason, fmt.Sprintf(".gitignore (status: %s)", outcome.Status))
+		}
+		return nil
 	}
 	data := outcome.Data
+
+	if sc.Coverage != nil {
+		sc.Coverage.InspectedFiles++
+	}
 
 	// 3. Evaluate each required pattern group directly from the buffer
 	// to avoid unbounded memory allocation for activeEntries.
 	matchedGroups := make([]bool, len(standardHygieneGroups))
 	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// Safe handling of unusually long lines by using default 64KB max token size.
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -129,6 +143,15 @@ func (c *GitignoreCheck) Run(_ context.Context, sc *ScanContext) error {
 				}
 			}
 		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		if sc.Coverage != nil {
+			sc.Coverage.AddReason(scanstate.ReasonEligibleReadFailure, sc.Options.MaxExamplesPerReason, ".gitignore (parsing error)")
+		}
+		// Partial check status when required parsing fails.
+		// No misleading missing-pattern findings after an incomplete parse.
+		return nil
 	}
 
 	for i, group := range standardHygieneGroups {

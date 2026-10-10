@@ -31,7 +31,13 @@ func (c *RepoHygieneCheck) Meta() Meta {
 	}
 }
 
-func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) error {
+func (c *RepoHygieneCheck) Run(ctx context.Context, sc *ScanContext) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	// Do not increment file inspection counters for presence facts
+
 	hasREADME := myfs.PresenceUnknown
 	hasLICENSE := myfs.PresenceUnknown
 

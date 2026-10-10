@@ -11,6 +11,7 @@ import (
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
+	"github.com/ammaarrehman/hammerhead/internal/scanstate"
 )
 
 // Check is the interface every security check implements.
@@ -77,8 +78,45 @@ type ScanContext struct {
 	// Checks must respect the returned error, stopping production if budgets are exhausted.
 	Emit func(f finding.Finding) error
 
+	// Coverage allows the check to report explicit execution metrics.
+	// The engine provides a non-nil pointer.
+	Coverage *Coverage
+
 	// Options contains immutable per-run check configuration.
 	Options CheckOptions
+}
+
+// Coverage allows checks to report detailed execution metrics back to the engine.
+type Coverage struct {
+	EligibleFiles  int
+	InspectedFiles int
+	ReadBytes      int
+	Reasons        []scanstate.Reason
+}
+
+// AddReason safely aggregates failure reasons, bounding the number of examples.
+func (c *Coverage) AddReason(code scanstate.ReasonCode, maxExamples int, examples ...string) {
+	for i, r := range c.Reasons {
+		if r.Code == code {
+			c.Reasons[i].Count++
+			for _, ex := range examples {
+				if len(c.Reasons[i].Examples) < maxExamples {
+					c.Reasons[i].Examples = append(c.Reasons[i].Examples, ex)
+				}
+			}
+			return
+		}
+	}
+	r := scanstate.Reason{
+		Code:  code,
+		Count: 1,
+	}
+	for _, ex := range examples {
+		if len(r.Examples) < maxExamples {
+			r.Examples = append(r.Examples, ex)
+		}
+	}
+	c.Reasons = append(c.Reasons, r)
 }
 
 // CheckOptions holds immutable configuration values for checks during a single scan.
@@ -86,4 +124,7 @@ type CheckOptions struct {
 	// LargeFileThresholdBytes is the file size limit for FILE-002.
 	// If 0, the check's default threshold is used.
 	LargeFileThresholdBytes int64
+
+	// MaxExamplesPerReason limits the number of bounded path examples.
+	MaxExamplesPerReason int
 }

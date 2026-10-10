@@ -182,10 +182,19 @@ func (c *SensitiveFileCheck) Meta() Meta {
 	}
 }
 
-func (c *SensitiveFileCheck) Run(_ context.Context, sc *ScanContext) error {
+func (c *SensitiveFileCheck) Run(ctx context.Context, sc *ScanContext) error {
 	for _, file := range sc.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if file.IsDir {
 			continue
+		}
+
+		if sc.Coverage != nil {
+			sc.Coverage.EligibleFiles++
+			sc.Coverage.InspectedFiles++
 		}
 
 		name := filepath.Base(file.Path)

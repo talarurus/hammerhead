@@ -18,9 +18,10 @@ const (
 
 // ReadOutcome contains the safe read result.
 type ReadOutcome struct {
-	Status ReadStatus
-	Data   []byte
-	Err    error
+	Status    ReadStatus
+	Data      []byte
+	BytesRead int64
+	Err       error
 }
 
 // ReadOptions controls a single content read.

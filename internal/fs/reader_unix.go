@@ -193,11 +193,11 @@ func (r *guardedReaderUnix) ReadFile(ctx context.Context, relativePath string, o
 	}
 
 	if isBinary {
-		return ReadOutcome{Status: ReadStatusBinary, Err: fmt.Errorf("is a binary file")}
+		return ReadOutcome{Status: ReadStatusBinary, BytesRead: actuallyRead, Err: fmt.Errorf("is a binary file")}
 	}
 
 	if err := ctx.Err(); err != nil {
-		return ReadOutcome{Status: ReadStatusError, Err: err}
+		return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: err}
 	}
 
 	restLimit := size - int64(n)
@@ -211,7 +211,7 @@ func (r *guardedReaderUnix) ReadFile(ctx context.Context, relativePath string, o
 			}
 
 			if err := ctx.Err(); err != nil {
-				return ReadOutcome{Status: ReadStatusError, Err: err}
+				return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: err}
 			}
 
 			readSize := chunkSize
@@ -232,23 +232,23 @@ func (r *guardedReaderUnix) ReadFile(ctx context.Context, relativePath string, o
 				break
 			}
 			if err != nil {
-				return ReadOutcome{Status: ReadStatusError, Err: fmt.Errorf("read: %w", err)}
+				return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: fmt.Errorf("read: %w", err)}
 			}
 		}
 	}
 
 	var postStat unix.Stat_t
 	if err := unix.Fstat(fd, &postStat); err != nil {
-		return ReadOutcome{Status: ReadStatusError, Err: fmt.Errorf("post-fstat: %w", err)}
+		return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: fmt.Errorf("post-fstat: %w", err)}
 	}
 
 	if stat.Size != postStat.Size || stat.Mtim != postStat.Mtim || stat.Ctim != postStat.Ctim {
-		return ReadOutcome{Status: ReadStatusError, Err: fmt.Errorf("file mutated during read")}
+		return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: fmt.Errorf("file mutated during read")}
 	}
 
 	if int64(len(finalData)) != stat.Size {
-		return ReadOutcome{Status: ReadStatusError, Err: fmt.Errorf("incomplete read: read %d bytes, expected %d", len(finalData), stat.Size)}
+		return ReadOutcome{Status: ReadStatusError, BytesRead: actuallyRead, Err: fmt.Errorf("incomplete read: read %d bytes, expected %d", len(finalData), stat.Size)}
 	}
 
-	return ReadOutcome{Status: ReadStatusText, Data: finalData}
+	return ReadOutcome{Status: ReadStatusText, Data: finalData, BytesRead: actuallyRead}
 }

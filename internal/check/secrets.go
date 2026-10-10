@@ -138,18 +138,49 @@ type awsMatch struct {
 
 func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 	for _, file := range sc.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if file.IsDir {
 			continue
 		}
 
+		const maxEligibleSize = 5 * 1024 * 1024
+		if file.Size > maxEligibleSize {
+			continue
+		}
+
+		if sc.Coverage != nil {
+			sc.Coverage.EligibleFiles++
+		}
+
 		// We use 5 MB as the eligibility boundary
-		outcome := sc.ReadFile(file.Path, 5*1024*1024)
+		outcome := sc.ReadFile(file.Path, maxEligibleSize)
+		if sc.Coverage != nil {
+			sc.Coverage.ReadBytes += int(outcome.BytesRead)
+		}
+
 		if outcome.Status == fs.ReadStatusBudgetExhaust {
 			return scanstate.ErrBudgetExhausted
 		}
+
+		if outcome.Status == fs.ReadStatusError {
+			if sc.Coverage != nil {
+				sc.Coverage.AddReason(scanstate.ReasonEligibleReadFailure, sc.Options.MaxExamplesPerReason, file.Path)
+			}
+			continue
+		}
+
+		// SEC-001 expected exclusions: binary files, too large, safety rejects
 		if outcome.Status != fs.ReadStatusText {
 			continue
 		}
+
+		if sc.Coverage != nil {
+			sc.Coverage.InspectedFiles++
+		}
+
 		data := outcome.Data
 
 		// Scan 1: PEM Private Key Header (FIRST supported key per file)

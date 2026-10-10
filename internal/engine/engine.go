@@ -246,6 +246,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		Emit: collector.Emit,
 		Options: check.CheckOptions{
 			LargeFileThresholdBytes: config.LargeFileThreshold,
+			MaxExamplesPerReason:    limits.MaxExamplesPerReason,
 		},
 	}
 
@@ -253,6 +254,8 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	checksRun := 0
 	var finalErr error
 	var emittedCancelDiag bool
+
+	checkReportedReasons := make(map[scanstate.ReasonCode]*scanstate.Reason)
 
 	for _, c := range e.registry.All() {
 		chkCov := scanstate.CheckCoverage{
@@ -294,7 +297,36 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 
 		checksRun++
+
+		checkCovData := &check.Coverage{}
+		sc.Coverage = checkCovData
 		err := c.Run(ctx, sc)
+		sc.Coverage = nil
+
+		eligible := checkCovData.EligibleFiles
+		inspected := checkCovData.InspectedFiles
+		readBytes := checkCovData.ReadBytes
+
+		chkCov.EligibleFiles = &eligible
+		chkCov.InspectedFiles = &inspected
+		chkCov.ReadBytes = &readBytes
+
+		if len(checkCovData.Reasons) > 0 {
+			chkCov.ReasonCounts = append(chkCov.ReasonCounts, checkCovData.Reasons...)
+			for _, r := range checkCovData.Reasons {
+				if existing, ok := checkReportedReasons[r.Code]; ok {
+					existing.Count += r.Count
+					for _, ex := range r.Examples {
+						if len(existing.Examples) < limits.MaxExamplesPerReason {
+							existing.Examples = append(existing.Examples, ex)
+						}
+					}
+				} else {
+					cp := r
+					checkReportedReasons[r.Code] = &cp
+				}
+			}
+		}
 
 		if ctx.Err() != nil {
 			code := scanstate.ReasonUserCancelled
@@ -340,7 +372,15 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			}
 			result.Coverage.Checks = append(result.Coverage.Checks, chkCov)
 		} else {
-			if walkErr != nil || collector.Exhausted() {
+			hasFailureReason := false
+			for _, r := range checkCovData.Reasons {
+				if r.Code != scanstate.ReasonUserCancelled && r.Code != scanstate.ReasonDeadlineExceeded {
+					hasFailureReason = true
+					break
+				}
+			}
+			if walkErr != nil || collector.Exhausted() || hasFailureReason {
+				upgradeStatus(scanstate.StatusPartial)
 				chkCov.Status = scanstate.CheckStatusPartial
 			} else {
 				chkCov.Status = scanstate.CheckStatusCompleted
@@ -436,6 +476,26 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 				CountIsLowerBound: false,
 				Examples:          []string{},
 			})
+		}
+	}
+
+	// Merge reasons collected specifically from checks (e.g. read failures)
+	for code, r := range checkReportedReasons {
+		found := false
+		for i, cr := range result.Coverage.Reasons {
+			if cr.Code == code {
+				result.Coverage.Reasons[i].Count += r.Count
+				for _, ex := range r.Examples {
+					if len(result.Coverage.Reasons[i].Examples) < limits.MaxExamplesPerReason {
+						result.Coverage.Reasons[i].Examples = append(result.Coverage.Reasons[i].Examples, ex)
+					}
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			result.Coverage.Reasons = append(result.Coverage.Reasons, *r)
 		}
 	}
 

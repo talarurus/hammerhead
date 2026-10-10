@@ -94,12 +94,21 @@ func (c *ProjectDetectCheck) Meta() Meta {
 	}
 }
 
-func (c *ProjectDetectCheck) Run(_ context.Context, sc *ScanContext) error {
+func (c *ProjectDetectCheck) Run(ctx context.Context, sc *ScanContext) error {
 	detected := make(map[string]string) // ecosystem -> manifest path
 
 	for _, file := range sc.Files {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		if file.IsDir {
 			continue
+		}
+
+		if sc.Coverage != nil {
+			sc.Coverage.EligibleFiles++
+			sc.Coverage.InspectedFiles++
 		}
 
 		base := filepath.Base(file.Path)
