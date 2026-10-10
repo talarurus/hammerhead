@@ -2,10 +2,10 @@
 package git
 
 import (
-	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -22,29 +22,41 @@ type RepoInfo struct {
 // parsing .git internals to handle worktrees and other edge cases.
 //
 // If git is not installed, returns a RepoInfo with IsRepo=false.
-func DetectRepo(path string) (*RepoInfo, error) {
+func DetectRepo(ctx context.Context, path string) (*RepoInfo, error) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, fmt.Errorf("resolving path: %w", err)
 	}
 
-	// Check if git is available.
-	if _, err := exec.LookPath("git"); err != nil {
-		// git not installed — fall back to .git directory detection.
-		return DetectRepoFallback(absPath)
+	runner, err := NewGitRunner(absPath)
+	if err != nil {
+		if errors.Is(err, ErrGitNotFound) {
+			return DetectRepoFallback(absPath)
+		}
+		return nil, fmt.Errorf("initializing git runner: %w", err)
 	}
 
 	// Use git rev-parse to find the repository root.
-	root, err := gitCommand(absPath, "rev-parse", "--show-toplevel")
+	root, err := runner.Run(ctx, absPath, "rev-parse", "--show-toplevel")
 	if err != nil {
-		// Not a git repository.
-		return &RepoInfo{IsRepo: false}, nil
+		if errors.Is(err, ErrNotARepository) {
+			// Not a git repository.
+			return &RepoInfo{IsRepo: false}, nil
+		}
+		return nil, fmt.Errorf("detecting repo: %w", err)
 	}
 
 	cleanRoot := filepath.Clean(strings.TrimSpace(root))
 
 	// Get current branch.
-	branch, _ := gitCommand(absPath, "rev-parse", "--abbrev-ref", "HEAD")
+	branch, err := runner.Run(ctx, absPath, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		if errors.Is(err, ErrUnbornBranch) {
+			branch = ""
+		} else {
+			return nil, fmt.Errorf("getting branch: %w", err)
+		}
+	}
 
 	return &RepoInfo{
 		IsRepo: true,
@@ -62,13 +74,18 @@ type WorktreeInfo struct {
 }
 
 // GetWorktreeStatus inspects the Git worktree status using 'git status --porcelain'.
+// Submodule status is explicitly ignored to prevent uncontrolled recursive status inspection.
 // It never executes hooks or arbitrary repository code.
-func GetWorktreeStatus(dir string) (*WorktreeInfo, error) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return &WorktreeInfo{}, nil
+func GetWorktreeStatus(ctx context.Context, dir string) (*WorktreeInfo, error) {
+	runner, err := NewGitRunner(dir)
+	if err != nil {
+		if errors.Is(err, ErrGitNotFound) {
+			return &WorktreeInfo{}, nil
+		}
+		return nil, fmt.Errorf("initializing git runner: %w", err)
 	}
 
-	out, err := gitCommand(dir, "status", "--porcelain")
+	out, err := runner.Run(ctx, dir, "status", "--porcelain", "--ignore-submodules=all")
 	if err != nil {
 		return nil, err
 	}
@@ -89,49 +106,16 @@ func GetWorktreeStatus(dir string) (*WorktreeInfo, error) {
 	}
 
 	// Check detached HEAD
-	branch, _ := gitCommand(dir, "rev-parse", "--abbrev-ref", "HEAD")
-	if strings.TrimSpace(branch) == "HEAD" {
+	branch, err := runner.Run(ctx, dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		if !errors.Is(err, ErrUnbornBranch) {
+			return nil, fmt.Errorf("getting detached HEAD status: %w", err)
+		}
+	} else if strings.TrimSpace(branch) == "HEAD" {
 		info.DetachedHEAD = true
 	}
 
 	return info, nil
-}
-
-// gitCommand runs a git command in the given directory and returns stdout.
-// Arguments are passed as a discrete list — never through a shell.
-func gitCommand(dir string, args ...string) (string, error) {
-	// Harden Git execution against malicious repository configuration.
-	safeArgs := []string{
-		"--no-pager",
-		"-c", "core.fsmonitor=",
-		"-c", "core.hooksPath=/dev/null",
-	}
-	safeArgs = append(safeArgs, args...)
-
-	cmd := exec.Command("git", safeArgs...)
-	cmd.Dir = dir
-
-	// Do not inherit the full parent environment.
-	// Set only what git needs, and explicitly disable global/system configuration.
-	cmd.Env = []string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
-		"GIT_TERMINAL_PROMPT=0",       // Never prompt for credentials.
-		"GIT_CONFIG_GLOBAL=/dev/null", // Ignore user's global gitconfig
-		"GIT_CONFIG_SYSTEM=/dev/null", // Ignore system gitconfig
-		"GIT_CONFIG_NOSYSTEM=1",       // Backup mechanism to ignore system config
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("git %s: %w (stderr: %s)",
-			strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
-	}
-
-	return stdout.String(), nil
 }
 
 // DetectRepoFallback detects a Git repo by looking for a .git directory.

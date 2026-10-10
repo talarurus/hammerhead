@@ -95,15 +95,39 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	}
 
 	// Step 1: Detect Git repository.
-	gitInfo, err := git.DetectRepo(targetDir)
+	gitInfo, err := git.DetectRepo(ctx, targetDir)
 	if err != nil {
-		upgradeStatus(scanstate.StatusFailed)
-		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
-			Stage:       "setup",
-			Code:        scanstate.ReasonInvalidRoot,
-			SafeMessage: "Failed to detect repository",
-		})
-		return result, fmt.Errorf("detecting repository: %w", err)
+		if errors.Is(err, context.Canceled) || errors.Is(err, git.ErrGitCanceled) {
+			upgradeStatus(scanstate.StatusCancelled)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "git_setup",
+				Code:        scanstate.ReasonUserCancelled,
+				SafeMessage: "Git repository detection cancelled",
+			})
+		} else if errors.Is(err, context.DeadlineExceeded) {
+			upgradeStatus(scanstate.StatusCancelled)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "git_setup",
+				Code:        scanstate.ReasonDeadlineExceeded,
+				SafeMessage: "Scan cancelled due to timeout during Git detection",
+			})
+		} else if errors.Is(err, git.ErrGitTimeout) {
+			upgradeStatus(scanstate.StatusPartial)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "git_setup",
+				Code:        scanstate.ReasonGitTimeout,
+				SafeMessage: "Git repository detection timed out",
+			})
+		} else {
+			upgradeStatus(scanstate.StatusPartial)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "git_setup",
+				Code:        scanstate.ReasonGitFailure,
+				SafeMessage: "Git operations failed, reverting to native scan",
+			})
+		}
+		// Continue scan natively without git info
+		gitInfo = &git.RepoInfo{IsRepo: false}
 	}
 
 	absTarget, err := filepath.Abs(targetDir)

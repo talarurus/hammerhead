@@ -55,10 +55,7 @@ func (c *GitHealthCheck) Run(ctx context.Context, sc *ScanContext) error {
 		targetDir = sc.Git.Root
 	}
 
-	// TODO(C10, C11): git.GetWorktreeStatus currently executes a blocking git subprocess.
-	// True cancellation during the git execution requires the C10 bounded Git runner
-	// and C11 Git snapshot migration, which will accept a context parameter.
-	status, err := git.GetWorktreeStatus(targetDir)
+	status, err := git.GetWorktreeStatus(ctx, targetDir)
 	if err != nil {
 		// Non-fatal: if git status fails (e.g. corrupted repo), return error to scan result warnings
 		return fmt.Errorf("retrieving git status: %w", err)

@@ -33,6 +33,7 @@ const (
 	ReasonEligibleReadFailure ReasonCode = "eligible_read_failure"
 	ReasonBudgetExhaustion    ReasonCode = "budget_exhaustion"
 	ReasonGitTimeout          ReasonCode = "git_timeout"
+	ReasonGitFailure          ReasonCode = "git_failure"
 	ReasonCheckFailure        ReasonCode = "check_failure"
 	ReasonTraversalFailure    ReasonCode = "traversal_failure"
 )

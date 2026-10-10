@@ -428,7 +428,7 @@ func verifyFinding(expectedRuleID, expectedTitle string, expectedSeverity findin
 	return func(t *testing.T, findings []finding.Finding) {
 		t.Helper()
 		if len(findings) != 1 {
-			t.Fatalf("Expected exactly 1 finding, got %d", len(findings))
+			t.Fatalf("Expected exactly 1 finding, got %d: %+v", len(findings), findings)
 		}
 		f := findings[0]
 		if f.RuleID != expectedRuleID {

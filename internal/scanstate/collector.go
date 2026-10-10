@@ -90,7 +90,7 @@ func (c *Collector) AddDiagnostic(d Diagnostic) {
 	// Validate ReasonCode
 	switch d.Code {
 	case ReasonUserCancelled, ReasonDeadlineExceeded, ReasonInvalidRoot,
-		ReasonEligibleReadFailure, ReasonBudgetExhaustion, ReasonGitTimeout,
+		ReasonEligibleReadFailure, ReasonBudgetExhaustion, ReasonGitTimeout, ReasonGitFailure,
 		ReasonCheckFailure, ReasonTraversalFailure:
 		// Valid code
 	default:
