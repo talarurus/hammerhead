@@ -499,14 +499,19 @@ func TestTerminal_ZeroFindingsWithFailure(t *testing.T) {
 		t.Errorf("expected no clean success message, got:\n%s", out)
 	}
 
-	// Test quiet mode
+	// Test quiet mode: operational output belongs on the diagnostic stream.
 	buf.Reset()
+	var diagnostic bytes.Buffer
+	term.DiagnosticWriter = &diagnostic
 	term.Quiet = true
 	if err := term.Report(result); err != nil {
 		t.Fatalf("Report quiet failed: %v", err)
 	}
 
-	outQuiet := buf.String()
+	if buf.Len() != 0 {
+		t.Errorf("zero-findings quiet stdout must be empty: %s", buf.String())
+	}
+	outQuiet := diagnostic.String()
 	if !strings.Contains(outQuiet, "[DIAGNOSTIC] hit limit") {
 		t.Errorf("expected diagnostic in quiet mode, got:\n%s", outQuiet)
 	}

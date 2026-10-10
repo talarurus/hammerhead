@@ -8,5 +8,6 @@ import (
 )
 
 func main() {
+	configureOutputSignals()
 	os.Exit(cli.Run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
 }

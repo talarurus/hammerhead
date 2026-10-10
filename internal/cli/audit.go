@@ -2,8 +2,10 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -27,7 +29,7 @@ func parseFailOn(value string) (finding.Severity, bool, error) {
 	return sev, false, nil
 }
 
-func newAuditCmd(stdout io.Writer, audit auditFunc) *cobra.Command {
+func newAuditCmd(stdout, stderr io.Writer, audit auditFunc) *cobra.Command {
 	var (
 		flagOutput      string
 		flagFailOn      string
@@ -96,9 +98,16 @@ are detected. Use --fail-on to change this threshold.`,
 			defer cancel()
 
 			res, runErr := audit(ctx, req)
-			if res == nil {
-				// Early validation failure (e.g. invalid target directory)
-				return &exitError{err: runErr, code: 2}
+			if res == nil || res.Result == nil {
+				// Map known setup causes without exporting arbitrary service errors,
+				// Git stderr, or credential-bearing text from an error implementation.
+				message := "audit could not establish a scan scope"
+				if errors.Is(runErr, os.ErrNotExist) {
+					message = fmt.Sprintf("cannot access %q: no such file or directory", reporter.SanitizeDiagnostic(target))
+				} else if errors.Is(runErr, os.ErrPermission) {
+					message = fmt.Sprintf("cannot access %q: permission denied", reporter.SanitizeDiagnostic(target))
+				}
+				return &exitError{err: errors.New(message), code: 2}
 			}
 
 			// Select and run the reporter
@@ -115,12 +124,17 @@ are detected. Use --fail-on to change this threshold.`,
 			} else {
 				termRep := reporter.NewTerminal()
 				termRep.Writer = stdout
+				termRep.DiagnosticWriter = stderr
 				termRep.Quiet = flagQuiet
 				rep = termRep
 			}
 
 			if err := rep.Report(res.Result); err != nil {
-				return &exitError{err: fmt.Errorf("writing report: %w", err), code: 2}
+				// Do not disclose arbitrary writer errors (which can contain secrets).
+				return &exitError{err: fmt.Errorf("writing report failed"), code: 2}
+			}
+			if runErr != nil {
+				return &exitError{err: errors.New("audit did not complete"), code: 2}
 			}
 
 			// Determine exit code through authoritative application layer
@@ -131,10 +145,7 @@ are detected. Use --fail-on to change this threshold.`,
 					// normal Exit 1 threshold hit, NO synthetic Error line
 					return &exitError{err: nil, code: exitCode}
 				}
-				err := runErr
-				if err == nil {
-					err = fmt.Errorf("scan finished with exit code %d", exitCode)
-				}
+				err := fmt.Errorf("scan finished with exit code %d", exitCode)
 				return &exitError{err: err, code: exitCode}
 			}
 

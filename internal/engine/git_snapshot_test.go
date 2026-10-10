@@ -75,13 +75,20 @@ func TestEngine_GitUnavailableVisibleWithZeroFindings(t *testing.T) {
 		t.Fatal(res, err)
 	}
 	for _, quiet := range []bool{false, true} {
-		var out bytes.Buffer
-		r := &reporter.Terminal{Writer: &out, Quiet: quiet}
+		var out, diagnostic bytes.Buffer
+		r := &reporter.Terminal{Writer: &out, DiagnosticWriter: &diagnostic, Quiet: quiet}
 		if err := r.Report(res); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(out.String(), "Git executable unavailable") {
-			t.Fatalf("invisible unavailable: %q", out.String())
+		text := out.String()
+		if quiet {
+			text = diagnostic.String()
+			if out.Len() != 0 {
+				t.Fatalf("zero-findings quiet stdout must be empty: %q", out.String())
+			}
+		}
+		if !strings.Contains(text, "Git executable unavailable") {
+			t.Fatalf("invisible unavailable: %q", text)
 		}
 	}
 	var out bytes.Buffer

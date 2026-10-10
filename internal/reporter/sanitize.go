@@ -1,79 +1,143 @@
 package reporter
 
 import (
-	"regexp"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
-// ansiRegex matches ANSI escape sequences:
-//   - CSI sequences: \x1b\[[0-9;?]*[a-zA-Z]
-//   - OSC sequences: \x1b\][^\x07\x1b]*(\x07|\x1b\\)
-//   - Fe sequences: \x1b[@-Z\\-_]
-var ansiRegex = regexp.MustCompile(`\x1b(?:\[[0-9;?]*[a-zA-Z]|\].*?(?:\x07|\x1b\\)|[@-Z\\-_])`)
+const (
+	// Presentation limits do not crop stored paths, identities or JSON data.
+	MaxTerminalTextBytes = 16 * 1024
+	MaxDiagnosticBytes   = 2 * 1024
+)
 
-// StripANSI removes all ANSI escape sequences from a string.
+// StripANSI removes CSI, OSC and other terminal escape/control strings,
+// including C1 introducers and unterminated strings. The parser is linear and
+// does not let embedded newlines escape an OSC/DCS/APC/PM/SOS string.
 func StripANSI(s string) string {
-	return ansiRegex.ReplaceAllString(s, "")
-}
-
-// SanitizeOneLine sanitizes a string intended to be printed on a single terminal line
-// (such as filenames, paths, evidence snippets, and labels).
-//
-// It guarantees that:
-//  1. No ANSI escape sequences remain to alter colors, cursor position, or execute commands.
-//  2. No newlines (\r, \n) or tabs remain to spoof additional findings or split lines.
-//  3. No unprintable or ASCII control characters (< 0x20, 0x7f) remain.
-//
-// Multiple consecutive spaces resulting from newline/control replacement are collapsed.
-func SanitizeOneLine(s string) string {
-	// 1. Remove ANSI escape sequences
-	clean := StripANSI(s)
-
-	// 2. Replace control characters and newlines with space
+	const (
+		plain = iota
+		escape
+		intermediate
+		csi
+		controlString
+		stringEscape
+	)
+	state := plain
 	var b strings.Builder
-	b.Grow(len(clean))
-
-	lastWasSpace := false
-	for _, r := range clean {
-		if r == '\r' || r == '\n' || r == '\t' || unicode.IsControl(r) {
-			if !lastWasSpace {
-				b.WriteByte(' ')
-				lastWasSpace = true
+	for _, r := range s {
+		switch state {
+		case plain:
+			switch r {
+			case '\x1b':
+				state = escape
+			case '\u009b':
+				state = csi
+			case '\u0090', '\u0098', '\u009d', '\u009e', '\u009f':
+				state = controlString
+			default:
+				b.WriteRune(r)
 			}
-			continue
+		case escape:
+			switch r {
+			case '[':
+				state = csi
+			case ']', 'P', 'X', '^', '_':
+				state = controlString
+			default:
+				if r >= 0x20 && r <= 0x2f {
+					state = intermediate
+				} else if r != '\x1b' {
+					state = plain
+				}
+			}
+		case intermediate:
+			if r >= 0x30 && r <= 0x7e {
+				state = plain
+			}
+		case csi:
+			if r >= 0x40 && r <= 0x7e {
+				state = plain
+			}
+		case controlString:
+			if r == '\a' || r == '\u009c' {
+				state = plain
+			} else if r == '\x1b' {
+				state = stringEscape
+			}
+		case stringEscape:
+			if r == '\\' || r == '\a' || r == '\u009c' {
+				state = plain
+			} else if r != '\x1b' {
+				state = controlString
+			}
 		}
-		b.WriteRune(r)
-		lastWasSpace = (r == ' ')
 	}
-
-	return strings.TrimSpace(b.String())
+	return b.String()
 }
 
-// SanitizeMultiline sanitizes multi-line descriptive text (such as descriptions and
-// remediation guidance) before terminal printing.
-//
-// It strips ANSI escapes and dangerous control characters, while preserving
-// intentional newline paragraph breaks (\n).
+// limitText bounds work before escape parsing and marks presentation truncation.
+func limitText(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	i := limit - len("…")
+	for i > 0 && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return s[:i] + "…"
+}
+
+// SanitizeOneLine prevents terminal controls and line/header spoofing. Unicode
+// format controls (including bidi overrides/isolates) are removed. This is
+// presentation sanitization, NOT secret redaction or path privacy.
+func SanitizeOneLine(s string) string {
+	return sanitize(s, false, MaxTerminalTextBytes)
+}
+
+// SanitizeDiagnostic bounds the complete diagnostic line, including its prefix.
+func SanitizeDiagnostic(s string) string {
+	return sanitize(s, false, MaxDiagnosticBytes)
+}
+
+// SanitizeMultiline preserves intentional LF/tab whitespace in reviewed prose.
+// Terminal wrapping reflows it; all other controls and Unicode format controls
+// are removed. Stored findings and JSON are never modified.
 func SanitizeMultiline(s string) string {
-	clean := StripANSI(s)
+	return sanitize(s, true, MaxTerminalTextBytes)
+}
 
+func sanitize(s string, multiline bool, limit int) string {
+	clean := StripANSI(limitText(s, limit))
 	var b strings.Builder
-	b.Grow(len(clean))
-
+	lastSpace := false
 	for _, r := range clean {
-		if r == '\r' {
-			continue // normalize CRLF to LF
-		}
-		if r == '\n' || r == '\t' {
-			b.WriteRune(r)
+		if unicode.Is(unicode.Cf, r) {
 			continue
 		}
-		if unicode.IsControl(r) {
-			continue // drop all other control characters
+		if multiline {
+			if r == '\r' || (unicode.IsControl(r) && r != '\n' && r != '\t') {
+				continue
+			}
+		} else if unicode.IsControl(r) || unicode.IsSpace(r) {
+			r = ' '
+			if lastSpace {
+				continue
+			}
+		}
+		// Zl/Zp are line separators even though IsControl does not include them.
+		if unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			r = ' '
+		}
+		if b.Len()+utf8.RuneLen(r) > limit {
+			break
 		}
 		b.WriteRune(r)
+		lastSpace = r == ' '
 	}
-
-	return b.String()
+	if multiline {
+		return b.String()
+	}
+	return strings.TrimSpace(b.String())
 }

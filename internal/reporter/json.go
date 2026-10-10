@@ -140,6 +140,9 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 	}
 
 	data = append(data, '\n')
-	_, err = j.Writer.Write(data)
-	return err
+	w := NewOutputWriter(j.Writer)
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	return w.Flush()
 }

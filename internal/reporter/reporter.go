@@ -7,6 +7,7 @@ import (
 
 // Reporter formats and outputs scan results.
 type Reporter interface {
-	// Report writes the scan results to the configured output.
+	// Report writes the scan results and returns any write/short-write/flush
+	// failure. Output errors do not change the underlying scan result.
 	Report(result *engine.ScanResult) error
 }

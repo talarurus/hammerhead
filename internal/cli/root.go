@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/talarurus/hammerhead/internal/app"
+	"github.com/talarurus/hammerhead/internal/reporter"
 )
 
 var (
@@ -24,6 +25,10 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 }
 
 func runWithAudit(ctx context.Context, args []string, stdout, stderr io.Writer, audit auditFunc) int {
+	// Cobra's help/usage paths sometimes discard fmt errors. Latch at the
+	// stream boundary so those paths still produce operational exit 2.
+	out := reporter.NewOutputWriter(stdout)
+	diagnostic := reporter.NewOutputWriter(stderr)
 	rootCmd := &cobra.Command{
 		Use:   "hammerhead",
 		Short: "Developer-security CLI for repository inspection",
@@ -36,23 +41,54 @@ explanations, and remediation guidance.`,
 		SilenceErrors: true,
 	}
 	rootCmd.SetArgs(args)
-	rootCmd.SetOut(stdout)
-	rootCmd.SetErr(stderr)
+	rootCmd.SetOut(out)
+	rootCmd.SetErr(diagnostic)
 
-	rootCmd.AddCommand(newVersionCmd(stdout))
-	rootCmd.AddCommand(newAuditCmd(stdout, audit))
-
-	if err := rootCmd.ExecuteContext(ctx); err != nil {
-		if exitErr, ok := err.(*exitError); ok {
-			if exitErr.Error() != "" {
-				fmt.Fprintf(stderr, "Error: %v\n", exitErr.err)
+	rootCmd.AddCommand(newVersionCmd(out))
+	rootCmd.AddCommand(newAuditCmd(out, diagnostic, audit))
+	// Avoid Cobra's default unknown-help-topic path, which writes to stdout
+	// and can call its process-exiting CheckErr instead of returning an error.
+	rootCmd.SetHelpCommand(&cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target, _, err := rootCmd.Find(args)
+			if err != nil {
+				return err
 			}
-			return exitErr.ExitCode()
+			if target == nil {
+				return fmt.Errorf("unknown help topic")
+			}
+			target.InitDefaultHelpFlag()
+			return target.Help()
+		},
+	})
+
+	err := rootCmd.ExecuteContext(ctx)
+	code := 0
+	message := ""
+	if err != nil {
+		code = 2
+		if exitErr, ok := err.(*exitError); ok {
+			code = exitErr.ExitCode()
 		}
-		fmt.Fprintf(stderr, "Error: %v\n", err)
+		message = err.Error()
+	}
+	if out.Flush() != nil {
+		code = 2
+		// Writer errors are arbitrary caller data, not safe source diagnostics.
+		message = "writing output failed"
+	}
+	if diagnostic.Err() != nil {
 		return 2
 	}
-	return 0
+	if message != "" {
+		fmt.Fprintln(diagnostic, reporter.SanitizeDiagnostic("Error: "+message))
+	}
+	if diagnostic.Flush() != nil {
+		return 2
+	}
+	return code
 }
 
 // exitError wraps an error with an exit code
