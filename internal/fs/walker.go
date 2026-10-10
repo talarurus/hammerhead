@@ -10,11 +10,13 @@
 package fs
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -53,6 +55,10 @@ type WalkerConfig struct {
 	MaxExamplesPerReason int
 	MaxDiagnosticPath    int
 	MaxSafeMessage       int
+
+	MaxExaminedEntries int
+	MaxDirectoryWidth  int
+	DirectoryReadBatch int
 }
 
 func (c *WalkerConfig) maxDepth() int {
@@ -67,6 +73,31 @@ func (c *WalkerConfig) maxFiles() int {
 		return c.MaxFiles
 	}
 	return DefaultMaxFiles
+}
+
+func (c *WalkerConfig) maxExaminedEntries() int {
+	if c != nil && c.MaxExaminedEntries > 0 {
+		return c.MaxExaminedEntries
+	}
+	return 100_000
+}
+
+func (c *WalkerConfig) maxDirectoryWidth() int {
+	if c != nil && c.MaxDirectoryWidth > 0 {
+		return c.MaxDirectoryWidth
+	}
+	return 10_000
+}
+
+func (c *WalkerConfig) directoryReadBatch() int {
+	batch := 256
+	if c != nil && c.DirectoryReadBatch > 0 {
+		batch = c.DirectoryReadBatch
+	}
+	if batch > 256 {
+		return 256
+	}
+	return batch
 }
 
 func (c *WalkerConfig) maxFileSize() int64 {
@@ -133,14 +164,20 @@ var defaultExcludedDirs = map[string]bool{
 type SkipCategory string
 
 const (
-	SkipCategoryWalkError        SkipCategory = "walk_error"
-	SkipCategoryRelativePathFail SkipCategory = "relative_path_fail"
-	SkipCategoryUserExcluded     SkipCategory = "user_excluded"
-	SkipCategoryMaliciousName    SkipCategory = "malicious_name"
-	SkipCategoryDepthExceeded    SkipCategory = "depth_exceeded"
-	SkipCategoryExcludedDir      SkipCategory = "excluded_dir"
-	SkipCategorySymlinkFail      SkipCategory = "symlink_fail"
-	SkipCategoryPathTraversal    SkipCategory = "path_traversal"
+	SkipCategoryWalkError              SkipCategory = "walk_error"
+	SkipCategoryRelativePathFail       SkipCategory = "relative_path_fail"
+	SkipCategoryUserExcluded           SkipCategory = "user_excluded"
+	SkipCategoryMaliciousName          SkipCategory = "malicious_name"
+	SkipCategoryDepthExceeded          SkipCategory = "depth_exceeded"
+	SkipCategoryExcludedDir            SkipCategory = "excluded_dir"
+	SkipCategorySymlinkFail            SkipCategory = "symlink_fail"
+	SkipCategoryPathTraversal          SkipCategory = "path_traversal"
+	SkipCategoryWidthExceeded          SkipCategory = "width_exceeded"
+	SkipCategoryExaminedBudgetExceeded SkipCategory = "examined_budget_exceeded"
+	SkipCategoryRetainedBudgetExceeded SkipCategory = "retained_budget_exceeded"
+	SkipCategoryGitfile                SkipCategory = "gitfile"
+	SkipCategoryCancelled              SkipCategory = "cancelled"
+	SkipCategoryNonRegular             SkipCategory = "non_regular"
 )
 
 // SafeWalker performs bounded, symlink-aware filesystem traversal.
@@ -158,6 +195,26 @@ type SafeWalker struct {
 }
 
 // SkippedEntry records a file or directory that was skipped during traversal.
+
+var ErrRootSetupFailed = errors.New("failed to set up root directory")
+
+var testHookAfterReadDirBatch func()
+
+type fileMeta struct {
+	dev  uint64
+	ino  uint64
+	mode os.FileMode
+	size int64
+}
+
+func (f fileMeta) IsDir() bool {
+	return f.mode.IsDir()
+}
+
+func (f fileMeta) IsRegular() bool {
+	return f.mode.IsRegular()
+}
+
 type SkippedEntry struct {
 	Path     string       // Relative path
 	Category SkipCategory // Categorical reason
@@ -225,133 +282,347 @@ func NewSafeWalker(root string, config *WalkerConfig) (*SafeWalker, error) {
 
 // Walk traverses the repository and returns all discovered files.
 // It enforces all safety limits and records skipped entries.
-func (w *SafeWalker) Walk() ([]WalkedFile, error) {
+
+func (w *SafeWalker) Walk(ctx context.Context) ([]WalkedFile, Inventory, error) {
 	var files []WalkedFile
-	maxFiles := w.config.maxFiles()
-	maxDepth := w.config.maxDepth()
+	inv := Inventory{
+		SkipCounts:        make(map[SkipCategory]int),
+		RootREADME:        PresenceUnknown,
+		RootLICENSE:       PresenceUnknown,
+		RootGitignore:     PresenceUnknown,
+		InventoryComplete: true,
+		RootListComplete:  true,
+	}
 
-	depthBudgetExceeded := false
-
-	err := filepath.Walk(w.root, func(absPath string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			// Permission denied or similar — skip, don't abort.
-			relPath, _ := filepath.Rel(w.root, absPath)
-			w.addSkipped(relPath, SkipCategoryWalkError, fmt.Sprintf("walk error: %v", walkErr))
-			if info != nil && info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Compute relative path.
-		relPath, err := filepath.Rel(w.root, absPath)
-		if err != nil {
-			w.addSkipped(absPath, SkipCategoryRelativePathFail, "failed to compute relative path")
-			return nil
-		}
-
-		// Skip the root directory entry itself.
-		if relPath == "." {
-			return nil
-		}
-
-		// Check user-configured exclude patterns.
-		if w.IsExcluded(relPath, filepath.Base(relPath)) {
-			w.addSkipped(relPath, SkipCategoryUserExcluded, "excluded by user pattern")
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Check for malicious filenames.
-		if reason := checkFilename(filepath.Base(relPath)); reason != "" {
-			w.addSkipped(relPath, SkipCategoryMaliciousName, reason)
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Check directory depth.
-		depth := strings.Count(relPath, string(filepath.Separator)) + 1
-		if depth > maxDepth {
-			w.addSkipped(relPath, SkipCategoryDepthExceeded, fmt.Sprintf("exceeded max depth (%d)", maxDepth))
-			depthBudgetExceeded = true
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Skip excluded directories.
-		if info.IsDir() {
-			baseName := filepath.Base(absPath)
-			if w.excludedDirs[baseName] {
-				w.addSkipped(relPath, SkipCategoryExcludedDir, "excluded directory")
-				return filepath.SkipDir
-			}
-		}
-
-		// Handle symlinks.
-		if info.Mode()&os.ModeSymlink != 0 {
-			resolved, err := filepath.EvalSymlinks(absPath)
-			if err != nil {
-				w.addSkipped(relPath, SkipCategorySymlinkFail, fmt.Sprintf("unresolvable symlink: %v", err))
-				return nil
-			}
-			if !isInsideDir(resolved, w.root) {
-				w.addSkipped(relPath, SkipCategorySymlinkFail, "symlink escapes repository root")
-				return nil
-			}
-			// Re-stat the resolved target.
-			info, err = os.Stat(resolved)
-			if err != nil {
-				w.addSkipped(relPath, SkipCategorySymlinkFail, fmt.Sprintf("cannot stat symlink target: %v", err))
-				return nil
-			}
-			absPath = resolved
-		}
-
-		// Check for path traversal in the relative path.
-		if containsTraversal(relPath) {
-			w.addSkipped(relPath, SkipCategoryPathTraversal, "path contains traversal component")
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		// Enforce file count limit.
-		if len(files) >= maxFiles {
-			return fmt.Errorf("%w: maximum file count %d exceeded", ErrBudgetExhausted, maxFiles)
-		}
-
-		files = append(files, WalkedFile{
-			Path:    relPath,
-			AbsPath: absPath,
-			Size:    info.Size(),
-			Mode:    info.Mode(),
-			IsDir:   info.IsDir(),
-		})
-
-		return nil
-	})
-
+	rootF, rootChain, rootMeta, err := openRoot(w.root)
 	if err != nil {
-		return files, fmt.Errorf("walking repository: %w", err)
+		w.addSkipped(".", SkipCategoryWalkError, err.Error())
+		inv.InventoryComplete = false
+		inv.RootListComplete = false
+		return files, inv, fmt.Errorf("%w: %v", ErrRootSetupFailed, err)
+	}
+	defer rootF.Close()
+
+	files = append(files, WalkedFile{
+		Path:    ".",
+		AbsPath: w.root,
+		Size:    rootMeta.size,
+		Mode:    rootMeta.mode,
+		IsDir:   true,
+	})
+	inv.RetainedDirs++
+
+	err = w.walkDir(ctx, rootF, rootChain, ".", w.root, 1, &files, &inv)
+	if err != nil {
+		inv.InventoryComplete = false
 	}
 
-	if depthBudgetExceeded {
-		return files, fmt.Errorf("%w: maximum depth %d exceeded", ErrBudgetExhausted, maxDepth)
+	// populate SkipCounts for inventory
+	for cat, count := range w.SkippedCounts() {
+		inv.SkipCounts[cat] = count
 	}
 
-	return files, nil
+	if err == nil && inv.DepthExhausted {
+		err = fmt.Errorf("%w: depth budget exhausted", ErrBudgetExhausted)
+	}
+	return files, inv, err
 }
 
-// Skipped returns all entries that were skipped during the last Walk.
+func (w *SafeWalker) walkDir(ctx context.Context, dirF *os.File, chain []dirEntry, relPath, absPath string, depth int, files *[]WalkedFile, inv *Inventory) error {
+	if err := validateChain(chain); err != nil {
+		w.addSkipped(relPath, SkipCategoryWalkError, err.Error())
+		inv.InventoryComplete = false
+		if relPath == "." {
+			inv.RootListComplete = false
+		}
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		w.addSkipped(relPath, SkipCategoryCancelled, "cancelled")
+		inv.InventoryComplete = false
+		if relPath == "." {
+			inv.RootListComplete = false
+		}
+		return err
+	}
+
+	var entries []os.DirEntry
+	var excludedREADME, excludedLICENSE, excludedGitignore bool
+	for {
+		if err := ctx.Err(); err != nil {
+			w.addSkipped(relPath, SkipCategoryCancelled, "cancelled")
+			inv.InventoryComplete = false
+			if relPath == "." {
+				inv.RootListComplete = false
+			}
+			return err
+		}
+		remExamined := w.config.maxExaminedEntries() - inv.ExaminedEntries
+		if remExamined < 0 {
+			remExamined = 0
+		}
+		remWidth := w.config.maxDirectoryWidth() - len(entries)
+		if remWidth < 0 {
+			remWidth = 0
+		}
+		limit := remExamined
+		if remWidth < limit {
+			limit = remWidth
+		}
+		limit += 1 // Allow one extra to prove overflow
+
+		batchSize := w.config.directoryReadBatch()
+		if limit < batchSize {
+			batchSize = limit
+		}
+
+		batch, err := dirF.ReadDir(batchSize)
+		if testHookAfterReadDirBatch != nil {
+			testHookAfterReadDirBatch()
+		}
+
+		if len(batch) > 0 {
+			entries = append(entries, batch...)
+			inv.ExaminedEntries += len(batch)
+			if inv.ExaminedEntries > w.config.maxExaminedEntries() {
+				w.addSkipped(relPath, SkipCategoryExaminedBudgetExceeded, "examined budget exceeded")
+				inv.InventoryComplete = false
+				if relPath == "." {
+					inv.RootListComplete = false
+				}
+				return fmt.Errorf("%w: examined budget exceeded", ErrBudgetExhausted)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			w.addSkipped(relPath, SkipCategoryWalkError, err.Error())
+			inv.InventoryComplete = false
+			if relPath == "." {
+				inv.RootListComplete = false
+			}
+			return err
+		}
+		if len(entries) > w.config.maxDirectoryWidth() {
+			break
+		}
+	}
+
+	if len(entries) > w.config.maxDirectoryWidth() {
+		w.addSkipped(relPath, SkipCategoryWidthExceeded, "directory width exceeded")
+		if relPath == "." {
+			inv.RootListComplete = false
+		}
+		return fmt.Errorf("%w: directory width exceeded", ErrBudgetExhausted)
+	}
+
+	type child struct {
+		name  string
+		isDir bool
+		meta  fileMeta
+	}
+	var children []child
+
+	for _, e := range entries {
+
+		name := e.Name()
+
+		lowerName := strings.ToLower(name)
+		if name == ".git" {
+			w.addSkipped(filepath.Join(relPath, name), SkipCategoryGitfile, "gitfile or dir")
+			continue
+		}
+
+		markSkippedCandidate := func() {
+			if relPath == "." {
+				if isREADME(lowerName) {
+					excludedREADME = true
+				}
+				if isLICENSE(lowerName) {
+					excludedLICENSE = true
+				}
+				if name == ".gitignore" {
+					excludedGitignore = true
+				}
+			}
+		}
+
+		if w.IsExcluded(filepath.Join(relPath, name), name) {
+			w.addSkipped(filepath.Join(relPath, name), SkipCategoryUserExcluded, "excluded by user pattern")
+			markSkippedCandidate()
+			continue
+		}
+
+		if reason := checkFilename(name); reason != "" {
+			w.addSkipped(filepath.Join(relPath, name), SkipCategoryMaliciousName, reason)
+			markSkippedCandidate()
+			continue
+		}
+
+		// Get direct child metadata securely
+		fm, err := statRelative(chain, name)
+		if err != nil {
+			w.addSkipped(filepath.Join(relPath, name), SkipCategoryWalkError, "stat failed")
+			inv.InventoryComplete = false
+			markSkippedCandidate()
+			continue
+		}
+
+		isDir := fm.IsDir()
+
+		if isDir && w.excludedDirs[name] {
+			w.addSkipped(filepath.Join(relPath, name), SkipCategoryExcludedDir, "excluded directory")
+			markSkippedCandidate()
+			continue
+		}
+
+		if fm.mode&os.ModeSymlink != 0 {
+			symlinkLogicalPath := filepath.Join(relPath, name)
+
+			targetFm, err := resolveSymlinkRelative(ctx, chain, relPath, name, w.IsExcluded)
+			if err != nil {
+				w.addSkipped(symlinkLogicalPath, SkipCategorySymlinkFail, fmt.Sprintf("cannot resolve symlink target: %v", err))
+				markSkippedCandidate()
+				continue
+			}
+
+			if targetFm.IsDir() {
+				w.addSkipped(symlinkLogicalPath, SkipCategorySymlinkFail, "do not follow directory symlinks")
+				markSkippedCandidate()
+				continue
+			}
+
+			if !targetFm.IsRegular() {
+				w.addSkipped(symlinkLogicalPath, SkipCategorySymlinkFail, "do not follow non-regular symlinks")
+				markSkippedCandidate()
+				continue
+			}
+
+			fm.size = targetFm.size
+			fm.mode = targetFm.mode
+			isDir = false
+		}
+
+		if relPath == "." {
+			lower := strings.ToLower(name)
+			if fm.IsRegular() {
+				if isREADME(lower) {
+					inv.RootREADME = PresencePresent
+					excludedREADME = false
+				}
+				if isLICENSE(lower) {
+					inv.RootLICENSE = PresencePresent
+					excludedLICENSE = false
+				}
+				if name == ".gitignore" {
+					inv.RootGitignore = PresencePresent
+					excludedGitignore = false
+				}
+			}
+		}
+
+		children = append(children, child{name: name, isDir: isDir, meta: fm})
+	}
+
+	if relPath == "." {
+		if inv.RootREADME == PresenceUnknown {
+			if !inv.RootListComplete || excludedREADME {
+				inv.RootREADME = PresenceUnknown
+			} else {
+				inv.RootREADME = PresenceAbsent
+			}
+		}
+		if inv.RootLICENSE == PresenceUnknown {
+			if !inv.RootListComplete || excludedLICENSE {
+				inv.RootLICENSE = PresenceUnknown
+			} else {
+				inv.RootLICENSE = PresenceAbsent
+			}
+		}
+		if inv.RootGitignore == PresenceUnknown {
+			if !inv.RootListComplete || excludedGitignore {
+				inv.RootGitignore = PresenceUnknown
+			} else {
+				inv.RootGitignore = PresenceAbsent
+			}
+		}
+	}
+
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].name < children[j].name
+	})
+
+	for _, c := range children {
+		if err := ctx.Err(); err != nil {
+			w.addSkipped(relPath, SkipCategoryCancelled, "cancelled")
+			inv.InventoryComplete = false
+			return err
+		}
+
+		childRelPath := filepath.Join(relPath, c.name)
+		childAbsPath := filepath.Join(absPath, c.name)
+
+		if !c.isDir && !c.meta.IsRegular() {
+			w.addSkipped(childRelPath, SkipCategoryNonRegular, "non-regular file")
+			continue
+		}
+
+		if len(*files) >= w.config.maxFiles() {
+			w.addSkipped(relPath, SkipCategoryRetainedBudgetExceeded, "retained budget exceeded")
+			inv.InventoryComplete = false
+			return fmt.Errorf("%w: retained budget exceeded", ErrBudgetExhausted)
+		}
+
+		if c.isDir {
+			if depth >= w.config.maxDepth() {
+				w.addSkipped(childRelPath, SkipCategoryDepthExceeded, fmt.Sprintf("exceeded max depth (%d)", w.config.maxDepth()))
+				inv.DepthExhausted = true
+				inv.InventoryComplete = false
+				continue
+			}
+
+			childF, childChain, childMeta, err := openDirRelative(chain, c.name, c.meta, childAbsPath)
+			if err != nil {
+				w.addSkipped(childRelPath, SkipCategoryWalkError, err.Error())
+				inv.InventoryComplete = false
+				continue
+			}
+
+			*files = append(*files, WalkedFile{
+				Path:    childRelPath,
+				AbsPath: childAbsPath,
+				Size:    childMeta.size,
+				Mode:    childMeta.mode,
+				IsDir:   true,
+			})
+			inv.RetainedDirs++
+
+			err = w.walkDir(ctx, childF, childChain, childRelPath, childAbsPath, depth+1, files, inv)
+			childF.Close()
+			if err != nil {
+				return err
+			}
+		} else {
+
+			*files = append(*files, WalkedFile{
+				Path:    childRelPath,
+				AbsPath: childAbsPath,
+				Size:    c.meta.size,
+				Mode:    c.meta.mode,
+				IsDir:   false,
+			})
+			inv.RetainedFiles++
+		}
+	}
+
+	return nil
+}
+
 func (w *SafeWalker) Skipped() []SkippedEntry {
-	return w.skipped
+	res := make([]SkippedEntry, len(w.skipped))
+	copy(res, w.skipped)
+	return res
 }
 
 // SkippedCounts returns the saturating count of skip categories encountered.
@@ -438,6 +709,7 @@ func (w *SafeWalker) SafeReadFile(relPath string) ([]byte, error) {
 	maxSize := w.config.maxFileSize()
 	if info.Size() > maxSize {
 		return nil, fmt.Errorf("file exceeds size limit (%d > %d bytes)", info.Size(), maxSize)
+
 	}
 
 	maxAggregate := w.config.maxAggregateReadBytes()
@@ -532,4 +804,20 @@ func checkFilename(name string) string {
 		}
 	}
 	return ""
+}
+
+func isREADME(name string) bool {
+	switch name {
+	case "readme", "readme.md", "readme.markdown", "readme.rst", "readme.txt":
+		return true
+	}
+	return false
+}
+
+func isLICENSE(name string) bool {
+	switch name {
+	case "license", "license.md", "license.txt", "licence", "licence.md", "copying", "copying.md":
+		return true
+	}
+	return false
 }

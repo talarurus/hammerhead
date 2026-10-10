@@ -63,16 +63,24 @@ func (c *GitignoreCheck) Meta() Meta {
 
 func (c *GitignoreCheck) Run(_ context.Context, sc *ScanContext) error {
 	// 1. Locate root .gitignore
-	var gitignoreFile *FileInfo
-	for i := range sc.Files {
-		if sc.Files[i].Path == ".gitignore" && !sc.Files[i].IsDir {
-			gitignoreFile = &sc.Files[i]
-			break
-		}
+	// The file list check was removed since presence is evaluated through the inventory.
+
+	hasGitignore := fs.PresenceUnknown
+	if sc.Inventory != nil {
+		hasGitignore = sc.Inventory.RootGitignore
+	}
+
+	isMissing := false
+	if hasGitignore == fs.PresenceAbsent {
+		isMissing = true
+	}
+
+	if hasGitignore == fs.PresenceUnknown {
+		return nil
 	}
 
 	// If no .gitignore exists, report a single finding
-	if gitignoreFile == nil {
+	if isMissing {
 		return sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(gitignoreCheckID, ".gitignore"),
 			RuleID:      gitignoreCheckID,

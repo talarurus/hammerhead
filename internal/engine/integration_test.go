@@ -357,8 +357,10 @@ func TestIntegration_WalkerSkips(t *testing.T) {
 	}
 
 	res, err := eng.Scan(context.Background(), tmpDir, cfg)
-	if err == nil {
-		t.Fatalf("expected error due to max depth exceeded (returns StatusPartial but no error from Scan, wait walkErr is returned from Scan unless... actually Scan returns walkErr)")
+	if err != nil {
+		if !errors.Is(err, fs.ErrBudgetExhausted) {
+			t.Fatalf("expected ErrBudgetExhausted for depth exceeded, got %v", err)
+		}
 	}
 
 	skipCount := 0
@@ -466,8 +468,10 @@ func TestIntegration_TinyDiagnosticLimitWithTraversalDiag(t *testing.T) {
 	}
 
 	res, err := eng.Scan(context.Background(), tmpDir, cfg)
-	if err == nil {
-		t.Fatalf("expected error from max depth exceeded")
+	if err != nil {
+		if !errors.Is(err, fs.ErrBudgetExhausted) {
+			t.Fatalf("expected ErrBudgetExhausted for depth exceeded, got %v", err)
+		}
 	}
 
 	// Because MaxDiagnosticSamples=1, and the walker consumed 1 sample for the depth skip,

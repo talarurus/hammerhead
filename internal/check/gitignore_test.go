@@ -14,7 +14,8 @@ func TestGitignoreCheck_MissingFile(t *testing.T) {
 	c := &check.GitignoreCheck{}
 
 	sc := &check.ScanContext{
-		RepoRoot: "/dummy",
+		RepoRoot:  "/dummy",
+		Inventory: &fs.Inventory{RootGitignore: fs.PresenceAbsent},
 		Files: []check.FileInfo{
 			{Path: "main.go", IsDir: false},
 		},
@@ -48,7 +49,8 @@ func TestGitignoreCheck_IncompleteFile(t *testing.T) {
 `
 
 	sc := &check.ScanContext{
-		RepoRoot: "/dummy",
+		RepoRoot:  "/dummy",
+		Inventory: &fs.Inventory{RootGitignore: fs.PresencePresent},
 		Files: []check.FileInfo{
 			{Path: ".gitignore", IsDir: false},
 		},
@@ -87,7 +89,8 @@ func TestGitignoreCheck_CompleteFile(t *testing.T) {
 `
 
 	sc := &check.ScanContext{
-		RepoRoot: "/dummy",
+		RepoRoot:  "/dummy",
+		Inventory: &fs.Inventory{RootGitignore: fs.PresencePresent},
 		Files: []check.FileInfo{
 			{Path: ".gitignore", IsDir: false},
 		},

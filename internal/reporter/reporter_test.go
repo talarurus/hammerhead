@@ -108,7 +108,7 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 
 	// Set tiny limit
 	cfg := &engine.ScanConfig{
-		Walker: &fs.WalkerConfig{MaxFiles: 1},
+		Walker: &fs.WalkerConfig{MaxFiles: 2},
 	}
 
 	res, err := eng.Scan(context.Background(), tmpDir, cfg)
@@ -175,14 +175,14 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 	if parsed.Coverage.Traversal.InventoryComplete == nil || *parsed.Coverage.Traversal.InventoryComplete != false {
 		t.Errorf("expected inventory_complete false, got %v", parsed.Coverage.Traversal.InventoryComplete)
 	}
-	if parsed.Coverage.Traversal.ExaminedEntries != nil {
-		t.Errorf("expected examined_entries null, got %v", parsed.Coverage.Traversal.ExaminedEntries)
+	if parsed.Coverage.Traversal.ExaminedEntries == nil || *parsed.Coverage.Traversal.ExaminedEntries != 3 {
+		t.Errorf("expected examined_entries 3, got %v", parsed.Coverage.Traversal.ExaminedEntries)
 	}
-	if parsed.Coverage.Traversal.DiscoveredDirectories != nil {
-		t.Errorf("expected discovered_directories null, got %v", parsed.Coverage.Traversal.DiscoveredDirectories)
+	if parsed.Coverage.Traversal.DiscoveredDirectories == nil || *parsed.Coverage.Traversal.DiscoveredDirectories != 1 {
+		t.Errorf("expected discovered_directories 1, got %v", parsed.Coverage.Traversal.DiscoveredDirectories)
 	}
-	if parsed.Coverage.Traversal.RootListingComplete != nil {
-		t.Errorf("expected root_listing_complete null, got %v", parsed.Coverage.Traversal.RootListingComplete)
+	if parsed.Coverage.Traversal.RootListingComplete == nil || *parsed.Coverage.Traversal.RootListingComplete != true {
+		t.Errorf("expected root_listing_complete true, got %v", parsed.Coverage.Traversal.RootListingComplete)
 	}
 	if parsed.Coverage.Policy.Exclusions != nil {
 		t.Errorf("expected exclusions null, got %v", parsed.Coverage.Policy.Exclusions)

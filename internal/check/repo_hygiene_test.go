@@ -5,6 +5,7 @@ import (
 
 	"github.com/ammaarrehman/hammerhead/internal/check"
 	"github.com/ammaarrehman/hammerhead/internal/finding"
+	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
 )
 
 func TestRepoHygieneCheck_MissingBoth(t *testing.T) {
@@ -14,6 +15,10 @@ func TestRepoHygieneCheck_MissingBoth(t *testing.T) {
 		RepoRoot: "/dummy",
 		Files: []check.FileInfo{
 			{Path: "main.go", IsDir: false},
+		},
+		Inventory: &myfs.Inventory{
+			RootREADME:  myfs.PresenceAbsent,
+			RootLICENSE: myfs.PresenceAbsent,
 		},
 	}
 
@@ -46,6 +51,10 @@ func TestRepoHygieneCheck_HasBoth(t *testing.T) {
 			{Path: "LICENSE", IsDir: false},
 			{Path: "main.go", IsDir: false},
 		},
+		Inventory: &myfs.Inventory{
+			RootREADME:  myfs.PresencePresent,
+			RootLICENSE: myfs.PresencePresent,
+		},
 	}
 
 	findings, err := runCheckForTest(c, sc)
@@ -66,6 +75,10 @@ func TestRepoHygieneCheck_AlternativeNames(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "README.rst", IsDir: false},
 			{Path: "COPYING", IsDir: false},
+		},
+		Inventory: &myfs.Inventory{
+			RootREADME:  myfs.PresencePresent,
+			RootLICENSE: myfs.PresencePresent,
 		},
 	}
 
@@ -88,6 +101,10 @@ func TestRepoHygieneCheck_SubdirIgnored(t *testing.T) {
 		Files: []check.FileInfo{
 			{Path: "subpkg/README.md", IsDir: false},
 			{Path: "subpkg/LICENSE", IsDir: false},
+		},
+		Inventory: &myfs.Inventory{
+			RootREADME:  myfs.PresenceAbsent,
+			RootLICENSE: myfs.PresenceAbsent,
 		},
 	}
 

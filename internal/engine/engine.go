@@ -154,9 +154,34 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		return result, fmt.Errorf("initializing walker: %w", err)
 	}
 
-	walkedFiles, walkErr := walker.Walk()
+	walkedFiles, inv, walkErr := walker.Walk(ctx)
 	var pendingTraversalDiag *scanstate.Diagnostic
 	if walkErr != nil {
+		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
+			upgradeStatus(scanstate.StatusCancelled)
+			code := scanstate.ReasonUserCancelled
+			msg := "Scan cancelled by user"
+			if errors.Is(walkErr, context.DeadlineExceeded) {
+				code = scanstate.ReasonDeadlineExceeded
+				msg = "Scan cancelled due to timeout"
+			}
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "traversal",
+				Code:        code,
+				SafeMessage: msg,
+			})
+			return result, walkErr
+		}
+		if errors.Is(walkErr, fs.ErrRootSetupFailed) {
+			// root setup failure -> FAILED
+			upgradeStatus(scanstate.StatusFailed)
+			result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+				Stage:       "traversal",
+				Code:        scanstate.ReasonTraversalFailure,
+				SafeMessage: "Root directory could not be opened or listed",
+			})
+			return result, walkErr
+		}
 		upgradeStatus(scanstate.StatusPartial)
 		code := scanstate.ReasonTraversalFailure
 		if errors.Is(walkErr, fs.ErrBudgetExhausted) {
@@ -167,7 +192,13 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			Code:        code,
 			SafeMessage: "Partial traversal completed due to error",
 		}
-		// Keep going with what we have, even if 0 files, because checks like git/project can still run on root.
+	} else if !inv.InventoryComplete {
+		upgradeStatus(scanstate.StatusPartial)
+		pendingTraversalDiag = &scanstate.Diagnostic{
+			Stage:       "traversal",
+			Code:        scanstate.ReasonTraversalFailure,
+			SafeMessage: "Partial traversal completed (directories skipped or limits exceeded)",
+		}
 	}
 
 	// Step 3: Initialize collector
@@ -208,6 +239,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			Root:   gitInfo.Root,
 			Branch: gitInfo.Branch,
 		},
+		Inventory: &inv,
 		ReadFile: func(relPath string, maxSize int64) fs.ReadOutcome {
 			return guardedReader.ReadFile(ctx, relPath, fs.ReadOptions{MaxSize: maxSize})
 		},
@@ -338,12 +370,17 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	result.Coverage.FindingsRetained = len(allFindings)
 	result.Coverage.FindingsTruncated = collector.Exhausted()
 
-	discovered := len(walkedFiles)
-	invComplete := walkErr == nil
+	discovered := inv.RetainedFiles
+	invComplete := inv.InventoryComplete
 
-	result.Coverage.Traversal.ExaminedEntries = nil
+	examined := inv.ExaminedEntries
+	retainedDirs := inv.RetainedDirs
+	rootListComp := inv.RootListComplete
+	result.Coverage.Traversal.ExaminedEntries = &examined
 	result.Coverage.Traversal.DiscoveredFiles = &discovered
+	result.Coverage.Traversal.DiscoveredDirectories = &retainedDirs
 	result.Coverage.Traversal.InventoryComplete = &invComplete
+	result.Coverage.Traversal.RootListingComplete = &rootListComp
 
 	result.Coverage.Policy.Exclusions = nil
 	result.Coverage.Policy.EffectiveLimits = map[string]int64{

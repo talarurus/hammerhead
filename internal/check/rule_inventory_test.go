@@ -199,14 +199,18 @@ func TestCurrentRuleVariants(t *testing.T) {
 		{
 			variantKey: "missing-file",
 			checkFunc:  func() check.Check { return &check.GitignoreCheck{} },
-			setupSC:    func(t *testing.T) *check.ScanContext { return &check.ScanContext{Files: []check.FileInfo{}} },
-			verify:     verifyFinding("GIT-001", "Missing .gitignore file", finding.SeverityLow),
+			setupSC: func(t *testing.T) *check.ScanContext {
+				return &check.ScanContext{Inventory: &fs.Inventory{RootGitignore: fs.PresenceAbsent}, Files: []check.FileInfo{}}
+			},
+			verify: verifyFinding("GIT-001", "Missing .gitignore file", finding.SeverityLow),
 		},
 		{
 			variantKey: "missing-env-pattern",
 			checkFunc:  func() check.Check { return &check.GitignoreCheck{} },
 			setupSC: func(t *testing.T) *check.ScanContext {
-				return scWithFileContent(".gitignore", "*.key\n") // Missing env
+				sc := scWithFileContent(".gitignore", "*.key\n") // Missing env
+				sc.Inventory = &fs.Inventory{RootGitignore: fs.PresencePresent}
+				return sc
 			},
 			verify: verifyFinding("GIT-001", "Sensitive pattern missing from .gitignore: Environment files", finding.SeverityLow),
 		},
@@ -214,7 +218,9 @@ func TestCurrentRuleVariants(t *testing.T) {
 			variantKey: "missing-key-pattern",
 			checkFunc:  func() check.Check { return &check.GitignoreCheck{} },
 			setupSC: func(t *testing.T) *check.ScanContext {
-				return scWithFileContent(".gitignore", ".env\n") // Missing key
+				sc := scWithFileContent(".gitignore", ".env\n") // Missing key
+				sc.Inventory = &fs.Inventory{RootGitignore: fs.PresencePresent}
+				return sc
 			},
 			verify: verifyFinding("GIT-001", "Sensitive pattern missing from .gitignore: Private keys", finding.SeverityLow),
 		},
@@ -241,14 +247,28 @@ func TestCurrentRuleVariants(t *testing.T) {
 		{
 			variantKey: "missing-readme",
 			checkFunc:  func() check.Check { return &check.RepoHygieneCheck{} },
-			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("LICENSE") }, // Missing README
-			verify:     verifyFinding("PROJ-001", "Missing project README", finding.SeverityLow),
+			setupSC: func(t *testing.T) *check.ScanContext {
+				sc := scWithFile("LICENSE")
+				sc.Inventory = &fs.Inventory{
+					RootREADME:  fs.PresenceAbsent,
+					RootLICENSE: fs.PresencePresent,
+				}
+				return sc
+			},
+			verify: verifyFinding("PROJ-001", "Missing project README", finding.SeverityLow),
 		},
 		{
 			variantKey: "missing-license",
 			checkFunc:  func() check.Check { return &check.RepoHygieneCheck{} },
-			setupSC:    func(t *testing.T) *check.ScanContext { return scWithFile("README.md") }, // Missing LICENSE
-			verify:     verifyFinding("PROJ-001", "Missing project LICENSE", finding.SeverityLow),
+			setupSC: func(t *testing.T) *check.ScanContext {
+				sc := scWithFile("README.md")
+				sc.Inventory = &fs.Inventory{
+					RootREADME:  fs.PresencePresent,
+					RootLICENSE: fs.PresenceAbsent,
+				}
+				return sc
+			},
+			verify: verifyFinding("PROJ-001", "Missing project LICENSE", finding.SeverityLow),
 		},
 
 		// === PROJ-002 ===

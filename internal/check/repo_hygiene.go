@@ -2,8 +2,7 @@ package check
 
 import (
 	"context"
-	"path/filepath"
-	"strings"
+	myfs "github.com/ammaarrehman/hammerhead/internal/fs"
 
 	"github.com/ammaarrehman/hammerhead/internal/finding"
 )
@@ -33,33 +32,15 @@ func (c *RepoHygieneCheck) Meta() Meta {
 }
 
 func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) error {
-	hasREADME := false
-	hasLICENSE := false
+	hasREADME := myfs.PresenceUnknown
+	hasLICENSE := myfs.PresenceUnknown
 
-	for _, file := range sc.Files {
-		if file.IsDir {
-			continue
-		}
-
-		// Only check top-level files (no directory separator in relative path)
-		if filepath.Dir(file.Path) != "." {
-			continue
-		}
-
-		baseLower := strings.ToLower(file.Path)
-
-		// README checks
-		if isREADME(baseLower) {
-			hasREADME = true
-		}
-
-		// LICENSE checks
-		if isLICENSE(baseLower) {
-			hasLICENSE = true
-		}
+	if sc.Inventory != nil {
+		hasREADME = sc.Inventory.RootREADME
+		hasLICENSE = sc.Inventory.RootLICENSE
 	}
 
-	if !hasREADME {
+	if hasREADME == myfs.PresenceAbsent {
 		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(repoHygieneCheckID, "README"),
 			RuleID:      repoHygieneCheckID,
@@ -80,7 +61,7 @@ func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) error {
 		}
 	}
 
-	if !hasLICENSE {
+	if hasLICENSE == myfs.PresenceAbsent {
 		err := sc.Emit(finding.Finding{
 			ID:          finding.GenerateID(repoHygieneCheckID, "LICENSE"),
 			RuleID:      repoHygieneCheckID,
@@ -102,20 +83,4 @@ func (c *RepoHygieneCheck) Run(_ context.Context, sc *ScanContext) error {
 	}
 
 	return nil
-}
-
-func isREADME(name string) bool {
-	switch name {
-	case "readme", "readme.md", "readme.markdown", "readme.rst", "readme.txt":
-		return true
-	}
-	return false
-}
-
-func isLICENSE(name string) bool {
-	switch name {
-	case "license", "license.md", "license.txt", "licence", "licence.md", "copying", "copying.md":
-		return true
-	}
-	return false
 }

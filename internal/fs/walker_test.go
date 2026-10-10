@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"context"
 	"github.com/ammaarrehman/hammerhead/internal/fs"
+	"syscall"
 )
 
 func TestSafeWalker_NormalFiles(t *testing.T) {
@@ -31,7 +33,7 @@ func TestSafeWalker_NormalFiles(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -71,7 +73,7 @@ func TestSafeWalker_SymlinkEscapesRoot(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -86,7 +88,7 @@ func TestSafeWalker_SymlinkEscapesRoot(t *testing.T) {
 	skipped := walker.Skipped()
 	found := false
 	for _, s := range skipped {
-		if s.Path == "escaped_link" && strings.Contains(s.Reason, "escapes repository root") {
+		if s.Path == "escaped_link" && strings.Contains(s.Reason, "escapes root") {
 			found = true
 			break
 		}
@@ -105,7 +107,7 @@ func TestSafeWalker_SymlinkWithinRoot(t *testing.T) {
 	}
 
 	symlinkPath := filepath.Join(tempDir, "link_to_real.txt")
-	if err := os.Symlink(realFile, symlinkPath); err != nil {
+	if err := os.Symlink("real.txt", symlinkPath); err != nil {
 		t.Skip("Symlinks not supported")
 	}
 
@@ -114,7 +116,7 @@ func TestSafeWalker_SymlinkWithinRoot(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -153,7 +155,7 @@ func TestSafeWalker_ExcludedDirectories(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -181,7 +183,7 @@ func TestSafeWalker_ErrBudgetExhausted(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	_, walkErr := walker.Walk()
+	_, _, walkErr := walker.Walk(context.Background())
 	if walkErr == nil {
 		t.Fatalf("expected walk error, got nil")
 	}
@@ -215,7 +217,7 @@ func TestSafeWalker_DepthBudgetExhausted(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, walkErr := walker.Walk()
+	files, _, walkErr := walker.Walk(context.Background())
 	if walkErr == nil {
 		t.Fatalf("Walk succeeded, expected budget exhausted error")
 	}
@@ -266,7 +268,7 @@ func TestSafeWalker_MaxFiles(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	_, err = walker.Walk()
+	_, _, err = walker.Walk(context.Background())
 	if err == nil {
 		t.Fatalf("expected error when file count limit exceeded, got nil")
 	}
@@ -359,7 +361,7 @@ func TestSafeWalker_ExcludePatterns(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -412,7 +414,7 @@ func TestSafeWalker_ExcludePatterns(t *testing.T) {
 func TestSafeWalker_BrokenSymlink(t *testing.T) {
 	tempDir := t.TempDir()
 	symlinkPath := filepath.Join(tempDir, "broken_link")
-	if err := os.Symlink(filepath.Join(tempDir, "does_not_exist.txt"), symlinkPath); err != nil {
+	if err := os.Symlink("does_not_exist.txt", symlinkPath); err != nil {
 		t.Skip("Symlinks not supported")
 	}
 
@@ -421,7 +423,7 @@ func TestSafeWalker_BrokenSymlink(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -436,7 +438,7 @@ func TestSafeWalker_BrokenSymlink(t *testing.T) {
 	skipped := walker.Skipped()
 	found := false
 	for _, s := range skipped {
-		if s.Path == "broken_link" && strings.Contains(s.Reason, "cannot stat symlink target") {
+		if s.Path == "broken_link" && (strings.Contains(s.Reason, "cannot resolve symlink target") || strings.Contains(s.Reason, "cannot stat symlink target")) {
 			found = true
 			break
 		}
@@ -472,7 +474,7 @@ func TestSafeWalker_SymlinkLoop(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	_, err = walker.Walk()
+	_, _, err = walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed due to symlink loop (expected it to be skipped): %v", err)
 	}
@@ -522,7 +524,7 @@ func TestSafeWalker_MalformedFilenames(t *testing.T) {
 		t.Fatalf("NewSafeWalker failed: %v", err)
 	}
 
-	files, err := walker.Walk()
+	files, _, err := walker.Walk(context.Background())
 	if err != nil {
 		t.Fatalf("Walk failed: %v", err)
 	}
@@ -668,7 +670,7 @@ func TestSafeWalker_SkippedBudget(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _ = walker.Walk()
+	_, _, _ = walker.Walk(context.Background())
 
 	skipped := walker.Skipped()
 
@@ -705,8 +707,8 @@ func TestSafeWalker_SkippedCountsCopy(t *testing.T) {
 
 	// Internal state might be empty initially. Let's add a test hook or walk a broken symlink.
 	symlinkPath := filepath.Join(tempDir, "broken_link")
-	os.Symlink(filepath.Join(tempDir, "does_not_exist.txt"), symlinkPath)
-	w.Walk()
+	os.Symlink("does_not_exist.txt", symlinkPath)
+	w.Walk(context.Background())
 
 	counts := w.SkippedCounts()
 	// Mutate
@@ -732,5 +734,117 @@ func TestSafeWalker_SafeReadFileIncompleteRead(t *testing.T) {
 	_, err := walker.SafeReadFile("file1.txt")
 	if err == nil || !strings.Contains(err.Error(), "exceeds size limit") {
 		t.Fatalf("expected size limit error, got %v", err)
+	}
+}
+
+func TestWalk_PresenceNonRegular(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Excluded README.txt
+	os.WriteFile(filepath.Join(tmpDir, "README.txt"), []byte(""), 0644)
+
+	// FIFO README.md
+	err := syscall.Mkfifo(filepath.Join(tmpDir, "README.md"), 0644)
+	if err != nil {
+		t.Skipf("Mkfifo failed: %v", err)
+	}
+
+	// Sockets and devices if we wanted, but FIFO is enough to prove non-regular.
+
+	walker, _ := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{
+		ExcludePatterns: []string{"README.txt"},
+	})
+
+	files, inv, err := walker.Walk(context.Background())
+	if err != nil {
+		t.Fatalf("Walk failed: %v", err)
+	}
+
+	if inv.RootREADME != fs.PresenceUnknown {
+		t.Errorf("Expected RootREADME UNKNOWN, got %v", inv.RootREADME)
+	}
+
+	if inv.RetainedFiles != 0 {
+		t.Errorf("Expected 0 retained files, got %d", inv.RetainedFiles)
+	}
+
+	for _, f := range files {
+		if !f.IsDir {
+			t.Errorf("Expected no regular files, got: %s", f.Path)
+		}
+	}
+
+	skipped := walker.SkippedCounts()
+	if skipped[fs.SkipCategoryNonRegular] != 1 {
+		t.Errorf("Expected 1 non-regular skip, got %d", skipped[fs.SkipCategoryNonRegular])
+	}
+}
+
+func TestWalk_ExcludedSymlinkTarget(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	os.MkdirAll(filepath.Join(tmpDir, "custom_exclude"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "custom_exclude", "test.txt"), []byte("bad"), 0644)
+
+	err := os.Symlink(filepath.Join("custom_exclude", "test.txt"), filepath.Join(tmpDir, "link.txt"))
+	if err != nil {
+		t.Skipf("Symlink failed: %v", err)
+	}
+
+	t.Run("Excluded", func(t *testing.T) {
+		walker, _ := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{
+			ExcludePatterns: []string{"custom_exclude"},
+		})
+		files, _, _ := walker.Walk(context.Background())
+
+		for _, f := range files {
+			if f.Path == "link.txt" {
+				t.Errorf("link.txt should have been excluded because its resolved target is in an excluded dir")
+			}
+		}
+	})
+
+	t.Run("Control_Included", func(t *testing.T) {
+		walker, _ := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{
+			ExcludePatterns: []string{}, // No exclusions
+		})
+		files, _, _ := walker.Walk(context.Background())
+
+		found := false
+		for _, f := range files {
+			if f.Path == "link.txt" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Control case failed: Symlink to in-root file was rejected. This is a design blocker.")
+		}
+	})
+}
+
+func TestWalk_ExaminedBudgetBounded(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	for i := 0; i < 50; i++ {
+		os.WriteFile(filepath.Join(tmpDir, fmt.Sprintf("file%d.txt", i)), []byte(""), 0644)
+	}
+
+	walker, _ := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{
+		MaxExaminedEntries: 10,
+		DirectoryReadBatch: 100, // Configured batch is large
+	})
+
+	*fs.TestHookAfterReadDirBatch = func() {
+		// Nothing
+	}
+	defer func() { *fs.TestHookAfterReadDirBatch = nil }()
+
+	_, inv, err := walker.Walk(context.Background())
+	if err == nil {
+		t.Errorf("Expected budget exhausted error")
+	}
+
+	if inv.ExaminedEntries > 11 {
+		t.Errorf("Expected ExaminedEntries to be strictly bounded, got %d", inv.ExaminedEntries)
 	}
 }

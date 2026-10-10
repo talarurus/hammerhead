@@ -67,6 +67,9 @@ type ScanContext struct {
 	// Git holds repository metadata, or nil for non-Git directories.
 	Git *GitInfo
 
+	// Inventory provides facts discovered during traversal.
+	Inventory *myfs.Inventory
+
 	// ReadFile safely reads a file's content by relative path.
 	ReadFile func(relPath string, maxSize int64) myfs.ReadOutcome
 

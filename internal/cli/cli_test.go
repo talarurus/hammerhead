@@ -196,11 +196,11 @@ func TestCLI_Adversarial_EscapedSymlink(t *testing.T) {
 	// SafeWalker should skip the symlink because it escapes root,
 	// so no finding should be generated for the escaped target.
 	cmd := exec.Command(binaryPath, "audit", tempRepo, "--output", "json", "--fail-on", "none")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("audit failed on adversarial symlink repo: %v (out: %s)", err, string(out))
-	}
+	out, err := cmd.Output()
 
+	if err != nil {
+		t.Fatalf("expected audit to succeed (exit 0) when skipping escaped symlink with fail-on none, got error: %v. Output: %s", err, string(out))
+	}
 	var parsed struct {
 		Findings []struct {
 			Path string `json:"path"`
