@@ -46,7 +46,7 @@ func TestEngine_CheckErrorRetainsFindings(t *testing.T) {
 	})
 
 	eng := engine.New(reg)
-	res, err := eng.Scan(context.Background(), ".", nil)
+	res, err := eng.Scan(context.Background(), t.TempDir(), nil)
 
 	// err shouldn't be returned from Scan just because a check failed.
 	if err != nil {
@@ -129,7 +129,7 @@ func TestEngine_CancelRetainsResult(t *testing.T) {
 
 	eng := engine.New(reg)
 
-	res, err := eng.Scan(ctx, ".", nil)
+	res, err := eng.Scan(ctx, t.TempDir(), nil)
 	if res == nil {
 		t.Fatalf("Expected non-nil result")
 	}
@@ -165,7 +165,7 @@ func TestEngine_CancelLastCheck(t *testing.T) {
 
 	eng := engine.New(reg)
 
-	res, err := eng.Scan(ctx, ".", nil)
+	res, err := eng.Scan(ctx, t.TempDir(), nil)
 	if res == nil {
 		t.Fatalf("Expected non-nil result")
 	}
@@ -251,7 +251,7 @@ func TestEngine_CheckPartialCascades(t *testing.T) {
 	reg.Add(&partialMockCheck{meta: check.Meta{ID: "PARTIAL-001"}})
 
 	eng := engine.New(reg)
-	res, err := eng.Scan(context.Background(), ".", nil)
+	res, err := eng.Scan(context.Background(), t.TempDir(), nil)
 	if err != nil {
 		t.Fatalf("Expected nil error, got %v", err)
 	}

@@ -1,82 +1,70 @@
 # Contributing to Hammerhead
 
-Thank you for your interest in contributing to Hammerhead. We welcome contributions that improve security detection, expand coverage, harden runtime defenses, and enhance developer experience.
+Development is on `v0.2-dev` in [talarurus/hammerhead](https://github.com/talarurus/hammerhead), module `github.com/talarurus/hammerhead`. Go 1.26.0 is the module minimum; use supported patches for ordinary development. The development version is `0.2.0-dev`, not a published v0.2 release. Git is required for real Git fixture tests; Make is optional.
 
-## Prerequisites
+```sh
+git clone --branch v0.2-dev https://github.com/talarurus/hammerhead.git
+cd hammerhead
+make build
+./hammerhead version
+```
 
-- **Go**: Version 1.26 or higher
-- **Git**
-- **Make** (optional, for convenience targets)
+## Verification
 
-## Development Setup
+Format only files you changed, then verify without rewriting unrelated files:
 
-1. Fork and clone the repository:
-   ```bash
-   git clone https://github.com/talarurus/hammerhead.git
-   cd hammerhead
-   ```
+```sh
+gofmt -w path/to/changed.go
+gofmt -l cmd internal   # must print no filenames
+go vet ./...
+go test -count=1 ./...
+go test -race -count=1 ./...
+```
 
-2. Build the binary:
-   ```bash
-   make build
-   ```
+Use Go 1.26.9 for the frozen G12 checkpoint and check the current supported toolchain as well. `make test` runs race tests; `make check` and `make fmt` write formatting changes. Do not use them as a read-only formatting check. Tests use owned temporary directories, synthetic patterns, deterministic stage/readiness barriers and parent watchdogs. Never submit real credentials, create privileged devices, or weaken a containment/status/process/output assertion to obtain a pass. Report failures, corrections and retries.
 
-3. Run the test suite:
-   ```bash
-   make test
-   ```
+## CI and platform evidence
 
-4. Run all quality checks (formatting, vet, and race-detector tests):
-   ```bash
-   make check
-   ```
+`.github/workflows/ci.yml` handles pushes and PRs targeting both `main` and `v0.2-dev`, with `contents: read` and no publishing/deployment. Each OS runs module minimum Go **1.26.0** and setup-go’s **stable** alias with latest resolution. At this reconciliation current stable is Go 1.27.2; `stable` tracks future supported releases. The version and native architecture are printed in each job.
 
-## Code Standards & Formatting
+| Environment | Native execution | Compile-only targets |
+| --- | --- | --- |
+| GitHub `ubuntu-24.04` | Linux amd64: formatting, vet, full/race tests, integrated gates, repeated descendant cleanup | All four targets below |
+| GitHub `macos-15-intel` | macOS amd64: same gates | All four targets below |
+| Local G12 host | macOS arm64: Go 1.26.9 and current Go checks | All four targets below |
+| Local OrbStack Docker, arm64 Go image | Linux arm64 on native arm64 VM CPU: Go 1.26.9/current checks | All four targets below |
 
-- All Go code must be formatted using standard `gofmt`:
-  ```bash
-  make fmt
-  ```
-- Code must pass `go vet ./...` without warnings.
-- All tests must pass cleanly under the race detector: `go test -race -count=1 ./...`.
+These explicit standard labels follow [GitHub’s hosted-runner architecture table](https://docs.github.com/en/actions/reference/runners/github-hosted-runners); no privileged or assumed arm64 runner is required. Local results do not establish GitHub workflow execution; those jobs require a later authorized push/PR. Cross-compilation is never runtime filesystem/process validation.
 
-## Architecture & Rule Development
+```sh
+build_dir=$(mktemp -d)
+for target_os in darwin linux; do
+  for target_arch in arm64 amd64; do
+    CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" \
+      go build -o "$build_dir/hammerhead-$target_os-$target_arch" ./cmd/hammerhead
+  done
+done
+```
 
-Hammerhead is designed to be deterministic, safe, and maintainable.
+Keep temporary binaries outside source. This builds only; do not run GoReleaser or publish a release as part of the foundation gates.
 
-### The Check Interface
+## Check architecture
 
-All security and hygiene checks implement the `check.Check` interface in `internal/check/check.go`:
+`internal/check/check.go` defines:
 
 ```go
 type Check interface {
     Meta() Meta
-    Run(ctx context.Context, sc *ScanContext) ([]finding.Finding, error)
+    Run(ctx context.Context, sc *ScanContext) error
 }
 ```
 
-### Explicit Registration (No `init()`)
+Emit through `sc.Emit(finding)` and return its budget error immediately. Native content reads, including binary classification, must use `sc.ReadFile` and its typed outcomes. Never walk/open content directly, suppress an eligible read failure, or infer absence from incomplete/excluded root facts. Use the supplied Git snapshot; no check launches subprocesses. Per-run options and caller slices must stay isolated.
 
-- **Strictly No `init()` Registration**: Checks must **never** register themselves automatically via package `init()` functions. Automatic registration introduces hidden dependencies, non-deterministic ordering, and side-effects during testing.
-- All checks must be explicitly instantiated and registered in `internal/check/registry.go` within `NewRegistryWithDefaults()`.
+Register explicitly in `internal/engine/registry.go::DefaultRegistry`, with no `init()` registration. Rule changes require independent scope approval and positive/negative/boundary/redaction regression cases. C15 adds no detector. Findings and their IDs remain serializable data; titles are not variant identities or explanation catalog keys.
 
-### Testing Requirements for New Checks
+## Security and review
 
-Any PR introducing or modifying a check must include:
-1. **Positive Tests**: Verify detection correctly triggers on targeted patterns, file structures, or credentials.
-2. **Negative Tests**: Verify benign patterns, valid public files, and clean repositories do **not** trigger false positives.
-3. **Edge-Case Tests**: Verify robust handling of empty files, binary content, maximum size limits, and malformed inputs without crashing.
+Only existing bounded Git execution is supported; pass explicit argv, never a shell command. Respect rooted/exclusion boundaries, cooperative cancellation and producer budgets. Sanitization protects terminal presentation; producer redaction separately protects secret material. Neither promises path privacy, perfect detection, an OS sandbox or interruption of arbitrary kernel I/O. See [SCAN-RESULT.md](docs/contracts/SCAN-RESULT.md), [OUTPUT.md](docs/contracts/OUTPUT.md) and [SECURITY.md](SECURITY.md).
 
-### Security-Sensitive Coding Expectations
-
-Hammerhead audits potentially untrusted and hostile codebases. When writing code:
-
-- **No Shell Invocations**: Subprocesses must never be launched via shell wrappers (`sh -c`, `bash -c`, or cmd string interpolation). Subprocesses must invoke explicit binary paths with separate argument slices.
-- **No Secret Evidence Leakage**: Findings must never include raw secrets, plaintext tokens, or complete private keys in the `Evidence` field. Always redact, mask, or display only safe prefixes/character counts.
-- **Respect Filesystem Boundaries**: Never read files directly using unvalidated paths. Use `sc.ReadFile` or `SafeWalker.SafeReadFile`, which enforce root-jail boundaries and file size limits.
-- **Terminal Sanitization**: Any string originating from repository files, paths, or Git metadata must pass through terminal sanitization before display to prevent ANSI/control-character injection.
-
-## Documentation & Commits
-
-- If a change introduces a new check or CLI flag, update `README.md` and `ARCHITECTURE.md` accordingly.
-- Keep commits focused and descriptive using conventional commit formatting (e.g., `feat:`, `fix:`, `docs:`, `test:`, `refactor:`).
+Keep historical v0.1 fixtures/tag/release assets immutable. [testdata/contracts/README.md](testdata/contracts/README.md) distinguishes contract examples from captured historical and active reporter goldens. Describe behavior, scope, exact validation evidence and remaining limits in review artifacts. Keep commits focused; independent G12 approval precedes any commit/push for this checkpoint. The frozen roadmap and later phases are not changed by documentation reconciliation.

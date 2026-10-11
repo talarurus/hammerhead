@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -44,8 +45,9 @@ func newAuditCmd(stdout, stderr io.Writer, audit auditFunc) *cobra.Command {
 		Long: `Audit inspects the target directory for security risks including
 sensitive files, credential exposure, and repository hygiene issues.
 
-By default, the exit code is non-zero if any HIGH or CRITICAL findings
-are detected. Use --fail-on to change this threshold.`,
+Completed scans exit 1 when a Security finding meets --fail-on (high by default).
+Incomplete scans and output failures exit 2, including with --fail-on none.
+Quiet mode sends compact findings to stdout and status/coverage to stderr.`,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 1 {
 				return fmt.Errorf("accepts at most 1 arg(s), received %d", len(args))
@@ -110,6 +112,15 @@ are detected. Use --fail-on to change this threshold.`,
 				return &exitError{err: errors.New(message), code: 2}
 			}
 
+			// The CLI owns the five-minute cap; embedders may supply an earlier
+			// parent deadline. Annotate a copy, preserving service-owned results.
+			reportResult := *res.Result
+			reportResult.Coverage.Policy.EffectiveLimits = maps.Clone(res.Result.Coverage.Policy.EffectiveLimits)
+			if reportResult.Coverage.Policy.EffectiveLimits == nil {
+				reportResult.Coverage.Policy.EffectiveLimits = make(map[string]int64)
+			}
+			reportResult.Coverage.Policy.EffectiveLimits["overall_scan_timeout_ms"] = 300000
+
 			// Select and run the reporter
 			var rep reporter.Reporter
 			if flagOutput == "json" {
@@ -129,7 +140,7 @@ are detected. Use --fail-on to change this threshold.`,
 				rep = termRep
 			}
 
-			if err := rep.Report(res.Result); err != nil {
+			if err := rep.Report(&reportResult); err != nil {
 				// Do not disclose arbitrary writer errors (which can contain secrets).
 				return &exitError{err: fmt.Errorf("writing report failed"), code: 2}
 			}
@@ -154,7 +165,7 @@ are detected. Use --fail-on to change this threshold.`,
 	}
 
 	cmd.Flags().StringVarP(&flagOutput, "output", "o", "terminal", "Output format: terminal, json")
-	cmd.Flags().StringVar(&flagFailOn, "fail-on", "high", "Minimum severity for non-zero exit: critical, high, medium, low, info, none")
+	cmd.Flags().StringVar(&flagFailOn, "fail-on", "high", "Security severity for exit 1: critical, high, medium, low, info, none (operational failures exit 2)")
 	cmd.Flags().StringArrayVarP(&flagExclude, "exclude", "e", nil, "Exclude paths matching pattern (repeatable)")
 	cmd.Flags().StringVar(&flagMaxFileSize, "max-file-size", "", "Override large file threshold for FILE-002 (e.g. 50MB, 10MB)")
 	cmd.Flags().BoolVarP(&flagQuiet, "quiet", "q", false, "Quiet mode: print compact findings without decorative banners")

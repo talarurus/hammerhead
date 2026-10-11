@@ -2,44 +2,67 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, v0.2-dev]
   pull_request:
-    branches: [main]
+    branches: [main, v0.2-dev]
 
 permissions:
   contents: read
 
 jobs:
-  build-and-test:
-    name: Build & Test
-    runs-on: ubuntu-latest
+  trustworthy-core:
+    name: G12 / ${{ matrix.os }} / Go ${{ matrix.go }}
+    # Explicit standard labels: Ubuntu x64 and macOS Intel, no privileged runner.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel]
+        go: ['1.26.0', 'stable']
+    env:
+      GOTOOLCHAIN: local
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
-
+        with:
+          persist-credentials: false
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: 'go.mod'
+          go-version: ${{ matrix.go }}
+          check-latest: true
           cache: true
-
-      - name: Verify gofmt
+      - name: Record native platform and toolchain
         run: |
-          UNFORMATTED=$(gofmt -l .)
-          if [ -n "$UNFORMATTED" ]; then
-            echo "The following files are not formatted with gofmt:"
-            echo "$UNFORMATTED"
+          uname -sm
+          go version
+          go env GOOS GOARCH CGO_ENABLED
+      - name: Verify formatting
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l cmd internal)
+          if [ -n "$unformatted" ]; then
+            printf '%s\n' "$unformatted"
             exit 1
           fi
-
-      - name: Run go vet
+      - name: Vet
         run: go vet ./...
-
-      - name: Run go test
-        run: go test ./...
-
-      - name: Run go test with race detector
+      - name: Full tests
+        run: go test -count=1 ./...
+      - name: Race tests
         run: go test -race -count=1 ./...
-
-      - name: Verify build
-        run: go build -v ./cmd/hammerhead
+      - name: Integrated adversarial gates
+        run: go test -count=1 -v ./internal/cli ./internal/engine ./internal/fs ./internal/check -run 'Test(CLI_(PartialScanEndToEnd|CancelDuringScan|SpecialFileNoHang|ActualTerminalInjection|GitTimeoutRetainsNativeFindings|InvalidResultEnums)|Acceptance_|Walk_LimitsStopEnumeration|ParseByteSize_Boundaries|SecretPatternCheck_MatchFloodBounded)'
+      - name: Repeated descendant cleanup under race instrumentation
+        run: go test -race -count=10 ./internal/git -run '^TestGitRunner_DescendantPipeCleanup$'
+      - name: Four CGO-disabled compile checks (not runtime tests)
+        shell: bash
+        run: |
+          build_dir=$(mktemp -d "${RUNNER_TEMP}/hammerhead-compile.XXXXXX")
+          trap 'rm -rf "$build_dir"' EXIT
+          for target_os in darwin linux; do
+            for target_arch in arm64 amd64; do
+              CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -o "$build_dir/hammerhead-$target_os-$target_arch" ./cmd/hammerhead
+            done
+          done

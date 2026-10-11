@@ -53,6 +53,29 @@ func TestJSON_Escaping(t *testing.T) {
 	}
 }
 
+func TestJSON_DevelopmentVersion(t *testing.T) {
+	for _, empty := range []bool{false, true} {
+		var out bytes.Buffer
+		rep := reporter.NewJSON()
+		rep.Writer = &out
+		if empty {
+			rep.AppVersion = ""
+		}
+		if err := rep.Report(&engine.ScanResult{}); err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &parsed); err != nil {
+			t.Fatal(err)
+		}
+		if parsed.Version != "0.2.0-dev" {
+			t.Fatalf("default/fallback version: %q", parsed.Version)
+		}
+	}
+}
+
 func TestJSON_FailOnNone(t *testing.T) {
 	var buf bytes.Buffer
 	rep := reporter.NewJSON()

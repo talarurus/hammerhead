@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -184,8 +185,8 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 	if parsed.Coverage.Traversal.RootListingComplete == nil || *parsed.Coverage.Traversal.RootListingComplete != true {
 		t.Errorf("expected root_listing_complete true, got %v", parsed.Coverage.Traversal.RootListingComplete)
 	}
-	if parsed.Coverage.Policy.Exclusions != nil {
-		t.Errorf("expected exclusions null, got %v", parsed.Coverage.Policy.Exclusions)
+	if !slices.Contains(parsed.Coverage.Policy.Exclusions, ".git") {
+		t.Errorf("expected applied .git exclusion, got %v", parsed.Coverage.Policy.Exclusions)
 	}
 	if parsed.Coverage.Policy.EffectiveLimits == nil || len(parsed.Coverage.Policy.EffectiveLimits) == 0 {
 		t.Errorf("expected effective_limits to be populated, got %v", parsed.Coverage.Policy.EffectiveLimits)
@@ -239,7 +240,7 @@ func TestJSONReporter_ValidOutput(t *testing.T) {
 	}
 
 	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.1, got %q", parsed.Schema)
+		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
 	}
 	if len(parsed.Findings) != 2 {
 		t.Errorf("expected 2 findings in JSON, got %d", len(parsed.Findings))

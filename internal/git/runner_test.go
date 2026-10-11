@@ -126,27 +126,7 @@ func TestMain(m *testing.M) {
 			syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 			time.Sleep(15 * time.Second)
 		case "descendant_pipe":
-			if _, err := os.Stat(".is_child"); os.IsNotExist(err) {
-				os.WriteFile(".is_child", nil, 0644)
-				exe, _ := os.Executable()
-				p, err := os.StartProcess(exe, os.Args, &os.ProcAttr{
-					Env:   os.Environ(),
-					Files: []*os.File{os.Stdin, os.Stdout, os.Stderr},
-					Dir:   ".",
-				})
-				if err == nil {
-					os.WriteFile(".child_pid", []byte(fmt.Sprintf("%d", p.Pid)), 0644)
-					p.Release()
-				} else {
-					os.WriteFile(".child_err", []byte(err.Error()), 0644)
-				}
-				os.Exit(0) // Parent exits immediately
-			}
-			// child process
-			f, _ := os.Create(".child_lock")
-			syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-			os.Stdout.Write([]byte("child_output\n"))
-			time.Sleep(15 * time.Second)
+			runReadyPipeHelper()
 		}
 		os.Exit(0)
 	}
@@ -435,81 +415,6 @@ func TestGitRunner_Environment(t *testing.T) {
 	}
 	if !strings.Contains(out, "GIT_CONFIG_GLOBAL=/dev/null") {
 		t.Error("missing GIT_CONFIG_GLOBAL=/dev/null")
-	}
-}
-
-func TestGitRunner_DescendantPipeCleanup(t *testing.T) {
-	setupMockGit(t)
-	targetDir := t.TempDir()
-	os.WriteFile(filepath.Join(targetDir, ".helper_cmd"), []byte("descendant_pipe"), 0644)
-
-	runner, err := git.NewGitRunner(targetDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
-	defer cancel()
-
-	_, err = runner.Run(ctx, targetDir)
-	if !errors.Is(err, git.ErrGitTimeout) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected ErrGitTimeout, got %v", err)
-	}
-
-	// Verify child PID is recorded
-	pidBytes, err := os.ReadFile(filepath.Join(targetDir, ".child_pid"))
-	if err != nil {
-		t.Fatalf("failed to read child PID: %v", err)
-	}
-
-	var pid int
-	fmt.Sscanf(string(pidBytes), "%d", &pid)
-
-	t.Cleanup(func() {
-		lockFile := filepath.Join(targetDir, ".child_lock")
-		f, err := os.OpenFile(lockFile, os.O_RDWR, 0666)
-		if err == nil {
-			errLock := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-			if errLock != nil {
-				syscall.Kill(pid, syscall.SIGKILL)
-			} else {
-				syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-			}
-			f.Close()
-		} else {
-			syscall.Kill(pid, syscall.SIGKILL)
-		}
-	})
-
-	// Use Flock to verify process is dead
-	lockFile := filepath.Join(targetDir, ".child_lock")
-	f, err := os.OpenFile(lockFile, os.O_RDWR, 0666)
-	if err == nil {
-		defer f.Close()
-	}
-
-	dead := false
-	var lastErr error
-	for i := 0; i < 50; i++ {
-		if err == nil {
-			errLock := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-			lastErr = errLock
-			if errLock == nil {
-				dead = true
-				syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-				break
-			}
-		} else {
-			f, err = os.OpenFile(lockFile, os.O_RDWR, 0666)
-			if err == nil {
-				defer f.Close()
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	if !dead {
-		t.Fatalf("descendant process was not terminated by cleanup, lastErr: %v", lastErr)
 	}
 }
 

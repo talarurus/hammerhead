@@ -67,10 +67,40 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	}
 	config = &clonedConfig
 
+	walkerCfg := config.Walker
+	if walkerCfg == nil {
+		walkerCfg = &fs.WalkerConfig{}
+	}
+	if len(config.ExcludePatterns) > 0 {
+		walkerCfg.ExcludePatterns = append(walkerCfg.ExcludePatterns, config.ExcludePatterns...)
+	}
+	if config.SecurityReadLimit > 0 {
+		walkerCfg.MaxFileSize = config.SecurityReadLimit
+	}
+	var limits scanstate.Limits
+	if config.Limits != nil {
+		limits = *config.Limits
+	} else {
+		limits = scanstate.ProductionLimits()
+	}
+
+	walkerCfg.MaxAggregateReadBytes = limits.MaxAggregateReadBytes
+	walkerCfg.MaxSkippedEntries = limits.MaxDiagnosticSamples
+	walkerCfg.MaxExamplesPerReason = limits.MaxExamplesPerReason
+	walkerCfg.MaxDiagnosticPath = limits.MaxDiagnosticPath
+	walkerCfg.MaxSafeMessage = limits.MaxSafeMessage
+
 	result := &ScanResult{
 		Status:   scanstate.StatusCompleted,
 		RepoRoot: targetDir,
+		Coverage: initialCoverage(walkerCfg, limits),
 	}
+
+	defer func() {
+		if len(result.Coverage.Checks) == 0 {
+			result.Coverage.Checks = unstartedChecks(e.registry)
+		}
+	}()
 
 	// Precedence for status:
 	// 1. cancellation
@@ -122,29 +152,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	result.RepoRoot = repoRoot
 
 	// Step 2: Walk the repository safely.
-	walkerCfg := config.Walker
-	if walkerCfg == nil {
-		walkerCfg = &fs.WalkerConfig{}
-	}
-	if len(config.ExcludePatterns) > 0 {
-		walkerCfg.ExcludePatterns = append(walkerCfg.ExcludePatterns, config.ExcludePatterns...)
-	}
-	if config.SecurityReadLimit > 0 {
-		walkerCfg.MaxFileSize = config.SecurityReadLimit
-	}
-	var limits scanstate.Limits
-	if config.Limits != nil {
-		limits = *config.Limits
-	} else {
-		limits = scanstate.ProductionLimits()
-	}
-
-	walkerCfg.MaxAggregateReadBytes = limits.MaxAggregateReadBytes
-	walkerCfg.MaxSkippedEntries = limits.MaxDiagnosticSamples
-	walkerCfg.MaxExamplesPerReason = limits.MaxExamplesPerReason
-	walkerCfg.MaxDiagnosticPath = limits.MaxDiagnosticPath
-	walkerCfg.MaxSafeMessage = limits.MaxSafeMessage
-
 	walker, err := fs.NewSafeWalker(repoRoot, walkerCfg)
 	if err != nil {
 		upgradeStatus(scanstate.StatusFailed)
@@ -157,6 +164,14 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	}
 
 	walkedFiles, inv, walkErr := walker.Walk(ctx)
+	result.Coverage.Traversal = scanstate.TraversalCoverage{
+		ExaminedEntries:       &inv.ExaminedEntries,
+		DiscoveredFiles:       &inv.RetainedFiles,
+		DiscoveredDirectories: &inv.RetainedDirs,
+		InventoryComplete:     &inv.InventoryComplete,
+		RootListingComplete:   &inv.RootListComplete,
+	}
+
 	var pendingTraversalDiag *scanstate.Diagnostic
 	if walkErr != nil {
 		if errors.Is(walkErr, context.Canceled) || errors.Is(walkErr, context.DeadlineExceeded) {
@@ -292,9 +307,15 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	checkReportedReasons := make(map[scanstate.ReasonCode]*scanstate.Reason)
 
 	for _, c := range e.registry.All() {
+		// An unstarted check inspected/read exactly zero entries. This is known
+		// accounting, not fabricated completeness of undiscovered target data.
+		eligible, inspected, readBytes := 0, 0, 0
 		chkCov := scanstate.CheckCoverage{
-			RuleID:       c.Meta().ID,
-			ReasonCounts: []scanstate.Reason{},
+			RuleID:         c.Meta().ID,
+			ReasonCounts:   []scanstate.Reason{},
+			EligibleFiles:  &eligible,
+			InspectedFiles: &inspected,
+			ReadBytes:      &readBytes,
 		}
 		if v := c.Meta().Version; v != "" {
 			vStr := v
@@ -337,9 +358,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		err := c.Run(ctx, sc)
 		sc.Coverage = nil
 
-		eligible := checkCovData.EligibleFiles
-		inspected := checkCovData.InspectedFiles
-		readBytes := checkCovData.ReadBytes
+		eligible = checkCovData.EligibleFiles
+		inspected = checkCovData.InspectedFiles
+		readBytes = checkCovData.ReadBytes
 
 		chkCov.EligibleFiles = &eligible
 		chkCov.InspectedFiles = &inspected
@@ -460,22 +481,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	result.Coverage.Traversal.InventoryComplete = &invComplete
 	result.Coverage.Traversal.RootListingComplete = &rootListComp
 
-	result.Coverage.Policy.Exclusions = nil
-	result.Coverage.Policy.EffectiveLimits = map[string]int64{
-		"max_git_detection_ancestor_steps": int64(git.MaxDetectionAncestorSteps),
-		"max_aggregate_native_read_bytes":  limits.MaxAggregateReadBytes,
-		"max_findings_retained":            int64(limits.MaxFindings),
-		"max_diagnostic_samples":           int64(limits.MaxDiagnosticSamples),
-		"max_examples_per_reason":          int64(limits.MaxExamplesPerReason),
-		"max_diagnostic_path_bytes":        int64(limits.MaxDiagnosticPath),
-		"max_safe_message_bytes":           int64(limits.MaxSafeMessage),
-		"max_finding_path_bytes":           int64(limits.MaxFindingPath),
-		"max_evidence_bytes":               int64(limits.MaxFindingEvidence),
-		"max_title_bytes":                  int64(limits.MaxFindingTitle),
-		"max_description_bytes":            int64(limits.MaxFindingDesc),
-		"max_remediation_bytes":            int64(limits.MaxFindingRemediation),
-	}
-
 	if result.Coverage.Checks == nil {
 		result.Coverage.Checks = []scanstate.CheckCoverage{}
 	}
@@ -547,9 +552,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 			omitted = int(^uint(0) >> 1)
 		}
 	}
-	if omitted > 0 {
-		result.Coverage.DiagnosticExamplesOmitted = &omitted
-	}
+	result.Coverage.DiagnosticExamplesOmitted = &omitted
 
 	if walkErr != nil && finalErr == nil {
 		finalErr = walkErr

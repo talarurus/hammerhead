@@ -27,10 +27,10 @@ func TestDetectRepo_NonGitDir(t *testing.T) {
 }
 
 func TestDetectRepo_ValidGitDir(t *testing.T) {
-	// The current hammerhead workspace is an initialized git repo
-	info, err := git.DetectRepo(context.Background(), ".")
+	root := initSnapshotRepo(t)
+	info, err := git.DetectRepo(context.Background(), root)
 	if err != nil {
-		t.Fatalf("DetectRepo on workspace failed: %v", err)
+		t.Fatalf("DetectRepo on temporary repository failed: %v", err)
 	}
 	if !info.IsRepo {
 		t.Errorf("expected current repo to be detected as git repo, got %+v", info)

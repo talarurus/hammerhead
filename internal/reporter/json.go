@@ -25,7 +25,7 @@ func NewJSON() *JSON {
 	return &JSON{
 		Writer:     os.Stdout,
 		Pretty:     true,
-		AppVersion: "0.1.0-dev",
+		AppVersion: "0.2.0-dev",
 		FailOn:     finding.SeverityHigh,
 	}
 }
@@ -74,7 +74,7 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 
 	ver := j.AppVersion
 	if ver == "" {
-		ver = "0.1.0-dev"
+		ver = "0.2.0-dev"
 	}
 
 	failOnStr := "none"

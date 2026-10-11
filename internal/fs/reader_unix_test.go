@@ -117,14 +117,21 @@ func TestReader_AncestorSwapOutsideRoot(t *testing.T) {
 }
 
 func TestReader_ReplacementWithFIFO(t *testing.T) {
+	if readerWatchdog(t, "TestReader_ReplacementWithFIFO") {
+		return
+	}
 	tmp := t.TempDir()
 	os.WriteFile(filepath.Join(tmp, "file.txt"), []byte("reg"), 0644)
 
 	hooks := &readerHooks{
 		beforeOpenat: func(comp string) {
 			if comp == "file.txt" {
-				os.Remove(filepath.Join(tmp, "file.txt"))
-				unix.Mkfifo(filepath.Join(tmp, "file.txt"), 0666)
+				if err := os.Remove(filepath.Join(tmp, "file.txt")); err != nil {
+					t.Fatal(err)
+				}
+				if err := unix.Mkfifo(filepath.Join(tmp, "file.txt"), 0600); err != nil {
+					t.Fatal(err)
+				}
 			}
 		},
 	}
@@ -134,6 +141,9 @@ func TestReader_ReplacementWithFIFO(t *testing.T) {
 	out := r.ReadFile(context.Background(), "file.txt", ReadOptions{MaxSize: 100})
 	if out.Status != ReadStatusSafetyReject && out.Status != ReadStatusError {
 		t.Fatalf("expected reject or error, got %v: %v", out.Status, out.Err)
+	}
+	if out.BytesRead != 0 || len(out.Data) != 0 {
+		t.Fatal("replacement FIFO content accessed")
 	}
 }
 
@@ -186,18 +196,26 @@ func TestReader_MutationCheck(t *testing.T) {
 }
 
 func TestReader_SocketRejected(t *testing.T) {
+	if readerWatchdog(t, "TestReader_SocketRejected") {
+		return
+	}
 	tmp := t.TempDir()
 	sockPath := filepath.Join(tmp, "mysock")
-	fd, _ := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fd)
 	addr := &unix.SockaddrUnix{Name: sockPath}
-	unix.Bind(fd, addr)
-	unix.Close(fd)
+	if err := unix.Bind(fd, addr); err != nil {
+		t.Fatal(err)
+	}
 
 	r, _ := NewGuardedReader(ReaderConfig{RootPath: tmp})
 	defer r.Close()
 
 	out := r.ReadFile(context.Background(), "mysock", ReadOptions{MaxSize: 100})
-	if out.Status != ReadStatusSafetyReject {
+	if out.Status != ReadStatusSafetyReject || out.BytesRead != 0 || len(out.Data) != 0 {
 		t.Fatalf("expected reject, got %v", out.Status)
 	}
 }
@@ -380,34 +398,50 @@ func TestReader_SameTypeReplacement(t *testing.T) {
 	}
 }
 
-func TestReader_FIFORejectedWithoutWriter(t *testing.T) {
-	if os.Getenv("TEST_WATCHDOG_CHILD") == "1" {
-		tmp := os.Getenv("TEST_TMPDIR")
-		fifoPath := filepath.Join(tmp, "myfifo")
-		unix.Mkfifo(fifoPath, 0666)
-		r, _ := NewGuardedReader(ReaderConfig{RootPath: tmp})
-		out := r.ReadFile(context.Background(), "myfifo", ReadOptions{MaxSize: 100})
-		if out.Status != ReadStatusSafetyReject {
-			os.Exit(1)
-		}
-		os.Exit(0)
+// readerWatchdog runs potentially blocking native I/O only in a child. The
+// parent kills and reaps it on timeout; the child creates no descendants.
+func readerWatchdog(t *testing.T, name string) bool {
+	t.Helper()
+	if os.Getenv("HAMMERHEAD_READER_CHILD") == name {
+		return false
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+name+"$")
+	cmd.Env = append(os.Environ(), "HAMMERHEAD_READER_CHILD="+name)
+	cmd.WaitDelay = time.Second
+	if out, err := cmd.CombinedOutput(); err != nil || ctx.Err() != nil {
+		t.Fatalf("reader child watchdog/failure: %v %v %s", err, ctx.Err(), out)
+	}
+	return true
+}
 
+func TestReader_FIFORejectedWithoutWriter(t *testing.T) {
+	if readerWatchdog(t, "TestReader_FIFORejectedWithoutWriter") {
+		return
+	}
 	tmp := t.TempDir()
-	cmd := exec.Command(os.Args[0], "-test.run=TestReader_FIFORejectedWithoutWriter")
-	cmd.Env = append(os.Environ(), "TEST_WATCHDOG_CHILD=1", "TEST_TMPDIR="+tmp)
-	done := make(chan error, 1)
-	go func() {
-		done <- cmd.Run()
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("child failed: %v", err)
+	if err := unix.Mkfifo(filepath.Join(tmp, "myfifo"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewGuardedReader(ReaderConfig{RootPath: tmp})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	out := r.ReadFile(context.Background(), "myfifo", ReadOptions{MaxSize: 100})
+	if out.Status != ReadStatusSafetyReject || out.BytesRead != 0 || len(out.Data) != 0 {
+		t.Fatalf("FIFO content accessed: %+v", out)
+	}
+}
+
+func TestReader_FakeDeviceMetadataRejected(t *testing.T) {
+	// Synthetic metadata only: no device nodes, privilege or actual device opens.
+	for _, mode := range []uint32{unix.S_IFCHR, unix.S_IFBLK} {
+		meta := fileMeta{mode: stModeToFileMode(mode)}
+		if meta.IsRegular() || meta.IsDir() || meta.mode&os.ModeDevice == 0 {
+			t.Fatalf("device metadata admitted as a native file: %v", meta.mode)
 		}
-	case <-time.After(2 * time.Second):
-		cmd.Process.Kill()
-		t.Fatalf("watchdog timeout")
 	}
 }
 

@@ -1,7 +1,7 @@
 .PHONY: build test lint vet fmt clean check
 
 BINARY := hammerhead
-VERSION ?= 0.1.0-dev
+VERSION ?= 0.2.0-dev
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 LDFLAGS := -ldflags "-X github.com/talarurus/hammerhead/internal/cli.Version=$(VERSION) -X github.com/talarurus/hammerhead/internal/cli.Commit=$(COMMIT)"
 

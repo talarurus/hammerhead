@@ -9,7 +9,7 @@ The Hammerhead project takes the security of its code and its users seriously. A
 | 0.1.x   | :white_check_mark: |
 | < 0.1   | :x:                |
 
-Only the latest patch release on the current minor branch receives security updates.
+Only the latest patch release on the current minor branch receives security updates. `0.2.0-dev` is unreleased development on the Talarurus repository, not a published or newly supported v0.2 release. Historical v0.1.0 downloads and its original module identity remain unchanged.
 
 ## Reporting a Vulnerability
 
@@ -52,3 +52,13 @@ We aim to:
 - Coordinate a public advisory and patch release once a fix is verified.
 
 *Note: Hammerhead is maintained on an open-source basis. While we prioritize security issues urgently, response and resolution times may vary depending on maintainer availability.*
+
+## Development v0.2 execution boundary
+
+Use an ordinary-user account on supported macOS/Linux systems and audit owned or appropriately isolated targets. Native checks use bounded descriptor-relative traversal and a guarded regular-file reader; binary probing shares the verified content handle. Special files are rejected before content reads, supported relative in-root file links remain usable, and absolute/directory links and excluded-target aliases are rejected. Hard links, mount crossings and arbitrary hostile kernel/filesystem behavior are outside a blanket containment guarantee.
+
+This is defense in depth, not an OS sandbox, whole-process memory cap or absolute filesystem cancellation guarantee. Cancellation checks occur between bounded local operations; a stuck kernel/FUSE/network filesystem call can outlast the five-minute context deadline. Logical traversal/read/producer budgets do not bound all RSS or filesystem costs. Termination by SIGKILL/power loss cannot promise a report or exit code.
+
+Git is the separate installed metadata capability and may access external worktree metadata. Its environment/options suppress hooks, fsmonitor, prompting and optional index writes; output/lifetime/process-group cleanup are bounded and tested. Missing Git does not imply a clean Git state. Available failures become partial scans. There is no raw HEAD fallback, and raw Git stderr is never published as a report diagnostic. Native checks do not execute target binaries or build scripts.
+
+Supported filename/header/AWS-shaped observations do not validate credential activity, pairing, tracking, exposure or compromise. Keep fixtures synthetic. Producer secret redaction is distinct from terminal control sanitization and neither promises path privacy. JSON preserves original paths/identities; do not assume terminal-sanitized paths are suitable for matching. Error/short/flush writes cause exit 2; safe stderr is best effort, including broken pipes. See [output](docs/contracts/OUTPUT.md), [scan contracts](docs/contracts/SCAN-RESULT.md) and the [current claims ledger](docs/contracts/CLAIMS.md).

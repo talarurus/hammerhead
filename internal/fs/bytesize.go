@@ -2,7 +2,7 @@ package fs
 
 import (
 	"fmt"
-	"strconv"
+	"math/big"
 	"strings"
 	"unicode"
 )
@@ -39,16 +39,18 @@ func ParseByteSize(s string) (int64, error) {
 		unitStr = strings.ToLower(strings.TrimSpace(s[splitIdx:]))
 	}
 
-	val, err := strconv.ParseFloat(numStr, 64)
-	if err != nil {
-		return 0, fmt.Errorf("invalid number %q: %w", numStr, err)
+	// Decimal sizes must not round through float64: large in-range integers
+	// lose precision and out-of-range floats may convert to a positive int64.
+	val, ok := new(big.Rat).SetString(numStr)
+	if !ok {
+		return 0, fmt.Errorf("invalid number %q", numStr)
 	}
 
-	if val <= 0 {
+	if val.Sign() <= 0 {
 		return 0, fmt.Errorf("file size must be greater than 0, got %v", val)
 	}
 
-	var multiplier float64
+	var multiplier int64
 	switch unitStr {
 	case "b", "bytes", "byte":
 		multiplier = 1
@@ -62,10 +64,11 @@ func ParseByteSize(s string) (int64, error) {
 		return 0, fmt.Errorf("unknown size unit %q (supported: B, KB, MB, GB)", unitStr)
 	}
 
-	result := int64(val * multiplier)
-	if result <= 0 {
+	bytes := new(big.Int).Mul(val.Num(), big.NewInt(multiplier))
+	bytes.Quo(bytes, val.Denom()) // Preserve established fractional-byte truncation.
+	if !bytes.IsInt64() || bytes.Sign() <= 0 {
 		return 0, fmt.Errorf("file size overflow or invalid: %v", val)
 	}
 
-	return result, nil
+	return bytes.Int64(), nil
 }

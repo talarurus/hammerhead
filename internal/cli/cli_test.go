@@ -13,6 +13,18 @@ import (
 var binaryPath string
 
 func TestMain(m *testing.M) {
+	os.Exit(runCLITests(m))
+}
+
+// Return before os.Exit so cleanup runs on success, failure and build errors.
+func runCLITests(m *testing.M) int {
+	if len(os.Args) == 3 && os.Args[1] == "--g12-special-reader" {
+		return runC15SpecialReader(os.Args[2])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "--no-pager" {
+		runC15GitHelper()
+		return 0
+	}
 	tempDir, err := os.MkdirTemp("", "hammerhead-cli-test-*")
 	if err != nil {
 		panic(err)
@@ -28,7 +40,7 @@ func TestMain(m *testing.M) {
 	}
 
 	binaryPath = bin
-	os.Exit(m.Run())
+	return m.Run()
 }
 
 func TestCLI_Version(t *testing.T) {
@@ -154,7 +166,7 @@ func TestCLI_AuditJSONOutput(t *testing.T) {
 	}
 
 	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.1, got %q", parsed.Schema)
+		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
 	}
 	if parsed.Summary.FindingsCount < 3 {
 		t.Errorf("expected at least 3 findings in dirty repo, got %d", parsed.Summary.FindingsCount)

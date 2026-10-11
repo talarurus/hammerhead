@@ -33,12 +33,13 @@
 For the current development source:
 
 ```sh
-git clone https://github.com/talarurus/hammerhead.git
+git clone --branch v0.2-dev https://github.com/talarurus/hammerhead.git
 cd hammerhead
 go build ./cmd/hammerhead
+./hammerhead version
 ```
 
-The active Go module is `github.com/talarurus/hammerhead`. The historical `v0.1.0` tag retains `github.com/ammaarrehman/hammerhead`; that release cannot be installed using the new module path. The release downloads and usage examples below describe v0.1.0.
+The active Go module is `github.com/talarurus/hammerhead`. The historical `v0.1.0` tag retains `github.com/ammaarrehman/hammerhead`; that release cannot be installed using the new module path. The downloads and demo below describe v0.1.0. Current source defaults to `0.2.0-dev`; this foundation work does not publish or declare a v0.2 release.
 
 ### Historical v0.1.0 release
 
@@ -57,23 +58,16 @@ Compare the archive's SHA-256 with the release's [checksums.txt](https://github.
 hammerhead version
 ```
 
-## Quick start
+## Development v0.2 quick start
 
-Audit the current repository:
+The following commands use the development binary on your `PATH`:
 
 ```sh
 hammerhead audit .
+hammerhead audit . --quiet
 ```
 
-Write the report as JSON:
-
-```sh
-hammerhead audit . --output json > audit.json
-```
-
-The default failure threshold is `high`. Exit status `1` means a Security finding met that threshold; Hygiene and Info findings do not trigger it. JSON output uses the same exit behavior as terminal output. Exit status `0` is a threshold result, not a guarantee that a repository is safe or that every file was inspected.
-
-For compact finding lines, use `hammerhead audit . --quiet`. Quiet mode omits the summary; use the regular report or JSON when you need risk and class totals.
+Terminal reports show completion status and coverage before any “No findings” message. Quiet mode keeps compact findings on stdout and sends status, coverage and necessary diagnostics to stderr, including zero-findings scans. JSON stdout is one `hammerhead/v0.2` document; operational messages go to stderr. Output write/short-write/flush failures exit 2, overriding findings. On Unix the executable ignores SIGPIPE so a broken stdout or stderr pipe returns operational exit 2; delivery is best effort. See [the output contract](docs/contracts/OUTPUT.md).
 
 ## Example findings
 
@@ -90,51 +84,55 @@ This table comes from an actual v0.1.0 run on the separate synthetic demo reposi
 
 The run produced six findings, security risk `high`, and exit status `1`. The same file can produce more than one finding from different checks.
 
-## JSON and automation
+## Development v0.2 JSON and automation
 
-JSON reports use schema `hammerhead/v0.1`. They include repository metadata, a timestamp, version, summary, findings, and any reported check errors. Select the fields you need from the actual report:
+Reports include `status`, `threshold`, `summary`, `findings`, applied policy and observed work in `coverage`, and safe typed `diagnostics`. Coverage is not a percentage of repository safety. Counts describe observed work; incomplete results can retain findings without establishing absence elsewhere.
+
+| Scan status | Meaning | Exit |
+| --- | --- | --- |
+| `completed` | Applicable required work finished within declared scope | 0, or 1 when a Security finding meets the threshold |
+| `partial` | Required traversal, read, check, Git operation or production budget was incomplete | 2 |
+| `failed` | Setup/root establishment failed | 2 |
+| `cancelled` | Cancellation or deadline interrupted the audit | 2 |
+
+Invalid requests and report failures also exit 2. Setup failures may have no report; a failed write may leave incomplete JSON. `--fail-on none` suppresses only finding exit 1. Hygiene and Info never trigger exit 1. Completed exit 0 establishes completion within policy, not perfect detection or safety.
+
+Keep reports outside the audited tree and preserve Hammerhead's exit status:
 
 ```sh
-# Use an if block so expected finding exits work even in a shell using set -e.
-if hammerhead audit . --output json > audit.json; then
+report_dir=$(mktemp -d)
+if hammerhead audit . --output json > "$report_dir/audit.json"; then
   audit_status=0
 else
   audit_status=$?
 fi
-if [ "$audit_status" -eq 2 ]; then
-  printf 'Hammerhead could not complete this invocation.\n' >&2
-  exit 2
+# Operational failures may still have useful partial JSON; parse it if complete.
+if jq '{schema, version, status, threshold, summary, coverage}' "$report_dir/audit.json"; then
+  printf 'Report: %s\n' "$report_dir/audit.json"
+else
+  printf 'No complete JSON report was delivered.\n' >&2
 fi
-jq '{schema, version, summary}' audit.json
-printf 'Hammerhead exit status: %s\n' "$audit_status"
+exit "$audit_status"
 ```
 
-For a script or CI gate, return the saved `audit_status` after processing the report; do not accidentally return only the status of `jq`.
-
-| Exit status | Meaning |
-| --- | --- |
-| 0 | No Security finding reached the selected threshold |
-| 1 | At least one Security finding reached the selected threshold |
-| 2 | CLI or operational failure, such as an invalid target or flag value |
-
-`--fail-on` accepts `critical`, `high` (default), `medium`, `low`, `info`, or `none`. Hygiene and Info findings never trigger finding-based failure. `none` disables status 1 from findings, while CLI/operational failures can still return 2.
-
-Check errors can be recorded while other checks continue; they do not automatically force status 2. Review those errors and scan limitations as well as the finding threshold. In v0.1.0, JSON does not expose the walker's skipped-entry list.
+The historical v0.1.0 release uses `hammerhead/v0.1`, does not expose traversal skips in JSON, and could record check errors without forcing exit 2. These legacy semantics do not describe development v0.2. There is no legacy serializer; see [migration notes](docs/MIGRATING-TO-V0.2.md) and [the JSON contract](docs/contracts/JSON-V0.2.md).
 
 Useful audit options:
 
 | Option | Behavior |
 | --- | --- |
 | `--output json` / `-o json` | Structured JSON; default output is terminal |
-| `--quiet` / `-q` | Compact terminal finding lines; omits the summary |
+| `--quiet` / `-q` | Compact findings on stdout; status/coverage/diagnostics on stderr |
 | `--fail-on medium` | Fail on Security findings of medium severity or higher |
 | `--exclude certs` / `-e certs` | Exclude a path or matching pattern; repeatable |
 | `--max-file-size 10MB` | Override FILE-002's large-file threshold |
 | `--help` / `-h` | Actual command help |
 
-`--max-file-size` does not change the security content-read bound in v0.1.0. Run `hammerhead audit --help` for command syntax.
+`--max-file-size` changes only FILE-002’s threshold; it does not change the 10 MiB guarded-read bound, SEC-001’s 5 MiB eligibility or the 256 MiB aggregate read budget. Run `hammerhead audit --help` for command syntax.
 
-## Checks in v0.1.0
+## Native checks
+
+These seven checks originate in v0.1.0 and remain the development rule inventory. Wording describes observations, never verified credential validity, pairing, commitment or exposure. See [rules](docs/contracts/RULES.md) and [reviewed claims](docs/contracts/CLAIMS.md).
 
 | Check | Class | Purpose |
 | --- | --- | --- |
@@ -146,13 +144,15 @@ Useful audit options:
 | PROJ-002 | Info | Runtime/package-manifest detection |
 | SEC-001 | Security | Supported PEM private-key headers and AWS credential patterns in readable text |
 
-## Security model
+## Development security model
 
-Hammerhead inspects the target working tree without running its build scripts, package managers, hooks, or binaries. It uses guarded file reads and checks symlink containment relative to the target root. Default traversal limits are depth 50 and 100,000 discovered entries; content reads are bounded at 10 MiB. Common generated/dependency directories and `.git` are excluded.
+Native checks consume a bounded inventory and one guarded reader; binary probing and content reads use the same verified regular-file handle. Unix descriptor-relative opens validate component identity, reject special files and enforce root/exclusion boundaries. Supported relative in-root file symlinks remain usable; directory symlinks, absolute links and aliases into excluded targets are rejected. User-selected root aliases are resolved before pinning. Hard links, mounts and arbitrary hostile kernel/filesystem behavior are outside a blanket containment guarantee.
 
-Git context uses the installed Git executable with explicit options disabling hooks and filesystem-monitor configuration, and a restricted environment. Git metadata is not an outbound credential-validation service. Repository-derived terminal strings are sanitized before display.
+Traversal limits are depth 50, 100,000 retained entries and 100,000 examined entries, directory batches of 256 and 10,000 names per directory. Oversized directories discard the unprocessed child set rather than select a nondeterministic prefix. Finding production stops after 10,000 retained findings and the next attempted emission; string and diagnostic budgets apply at producers. See [all budgets and residual limits](docs/contracts/SCAN-RESULT.md).
 
-These are defense-in-depth measures, not a sandbox or a guarantee that hostile repositories are harmless. Exclusions, unreadable files, size bounds, partial traversal, and check failures can limit coverage. Review findings with that context.
+Git is an optional, separately bounded installed executable. Hooks/fsmonitor configuration are disabled and `GIT_OPTIONAL_LOCKS=0` suppresses optional writes. Missing Git is visibly `unavailable`; native checks can complete. Ordinary non-Git directories and audited subdirectories are `not_applicable`. Available Git failure/timeout/output overflow makes the scan partial; no raw HEAD fallback or raw Git stderr is exposed. Git may read external worktree metadata, separately from native content confinement.
+
+Run as an ordinary user on supported macOS/Linux systems. These are defense-in-depth measures, not an OS sandbox, whole-process memory cap, credential validator or guarantee that hostile repositories are harmless. Cancellation is cooperative between bounded local operations; uninterruptible kernel, FUSE or network filesystem I/O can exceed the CLI’s five-minute context deadline.
 
 ## Limitations
 
@@ -166,14 +166,14 @@ These are defense-in-depth measures, not a sandbox or a guarantee that hostile r
 
 Use issues for ordinary bugs and focused feature requests, and pull requests for improvements. For vulnerabilities, follow the private route below.
 
-Development requires Go 1.26+; Git is needed for Git-context checks and tests. Existing checks include:
+Development requires Go 1.26.0 or newer; use a supported patch release (G12 validation uses 1.26.9 and current Go 1.27.2). Git is needed for real Git fixture tests. Existing checks include:
 
 ```sh
 make test
 make vet
 ```
 
-`make test` runs the Go tests with race detection. Keep fixtures synthetic and do not submit real credentials. Describe changes and how you verified them.
+`make test` runs the Go tests with race detection. Keep fixtures synthetic and do not submit real credentials. Describe changes and how you verified them. [CONTRIBUTING.md](CONTRIBUTING.md) records the native CI matrix, local arm64 validation and compile-only targets.
 
 ## Security reporting
 
