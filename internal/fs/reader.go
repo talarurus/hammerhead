@@ -37,6 +37,10 @@ type GuardedReader interface {
 
 // ReaderConfig holds configuration for creating a GuardedReader.
 type ReaderConfig struct {
+	// Root is borrowed during construction; the reader owns an independent
+	// descriptor derived from it. When supplied, RootPath is never opened.
+	Root *RootHandle
+	// RootPath selects an initial authority for standalone reader callers only.
 	RootPath           string
 	AggregateReadBytes *int64
 	MaxAggregate       int64

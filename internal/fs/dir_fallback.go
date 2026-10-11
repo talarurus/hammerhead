@@ -27,6 +27,10 @@ func openRoot(path string) (*os.File, []dirEntry, fileMeta, error) {
 	return nil, nil, fileMeta{}, fmt.Errorf("safe directory traversal is not supported on this platform")
 }
 
+func openRootRelative(root *os.File, path string) (*os.File, []dirEntry, fileMeta, error) {
+	return nil, nil, fileMeta{}, fmt.Errorf("safe directory traversal is not supported on this platform")
+}
+
 func validateChain(chain []dirEntry) error {
 	return nil
 }

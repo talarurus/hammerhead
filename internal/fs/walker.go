@@ -284,6 +284,21 @@ func NewSafeWalker(root string, config *WalkerConfig) (*SafeWalker, error) {
 // It enforces all safety limits and records skipped entries.
 
 func (w *SafeWalker) Walk(ctx context.Context) ([]WalkedFile, Inventory, error) {
+	root, err := w.OpenRoot()
+	if err != nil {
+		return w.walk(ctx, nil, err)
+	}
+	defer root.Close()
+	return w.WalkRoot(ctx, root)
+}
+
+// WalkRoot borrows the authority and closes its own traversal descriptor on
+// every return. The caller retains the original root across subsequent stages.
+func (w *SafeWalker) WalkRoot(ctx context.Context, root *RootHandle) ([]WalkedFile, Inventory, error) {
+	return w.walk(ctx, root, nil)
+}
+
+func (w *SafeWalker) walk(ctx context.Context, root *RootHandle, setupErr error) ([]WalkedFile, Inventory, error) {
 	var files []WalkedFile
 	inv := Inventory{
 		SkipCounts:        make(map[SkipCategory]int),
@@ -294,7 +309,13 @@ func (w *SafeWalker) Walk(ctx context.Context) ([]WalkedFile, Inventory, error) 
 		RootListComplete:  true,
 	}
 
-	rootF, rootChain, rootMeta, err := openRoot(w.root)
+	var rootF *os.File
+	var rootChain []dirEntry
+	var rootMeta fileMeta
+	err := setupErr
+	if err == nil {
+		rootF, rootChain, rootMeta, err = root.openDirectory()
+	}
 	if err != nil {
 		w.addSkipped(".", SkipCategoryWalkError, err.Error())
 		inv.InventoryComplete = false

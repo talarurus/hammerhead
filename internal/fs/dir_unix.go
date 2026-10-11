@@ -210,6 +210,23 @@ func openRoot(path string) (*os.File, []dirEntry, fileMeta, error) {
 	return f, chain, fm, nil
 }
 
+// Open "." relative to the live authority, with an independent directory
+// offset and CLOEXEC. Neither rename nor pathname substitution redirects it.
+func openRootRelative(root *os.File, path string) (*os.File, []dirEntry, fileMeta, error) {
+	fd, err := unix.Openat(int(root.Fd()), ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, nil, fileMeta{}, err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		f.Close()
+		return nil, nil, fileMeta{}, err
+	}
+	m := fileMeta{dev: uint64(st.Dev), ino: uint64(st.Ino), mode: stModeToFileMode(uint32(st.Mode)), size: st.Size}
+	return f, []dirEntry{{fd: fd, name: ".", dev: m.dev, ino: m.ino}}, m, nil
+}
+
 func readlinkRelative(chain []dirEntry, childName string) (string, error) {
 	if len(chain) == 0 {
 		return "", fmt.Errorf("empty chain")

@@ -34,12 +34,13 @@ type ScanConfig struct {
 
 // Engine runs security checks against a repository.
 type Engine struct {
-	registry *Registry
+	registry  *Registry
+	newReader func(fs.ReaderConfig) (fs.GuardedReader, error)
 }
 
 // New creates a scan engine with the given check registry.
 func New(registry *Registry) *Engine {
-	return &Engine{registry: registry}
+	return &Engine{registry: registry, newReader: fs.NewGuardedReader}
 }
 
 // Scan runs all registered checks against the target directory.
@@ -163,7 +164,18 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		return result, fmt.Errorf("initializing walker: %w", err)
 	}
 
-	walkedFiles, inv, walkErr := walker.Walk(ctx)
+	// The engine owns the authority from establishment through all native work.
+	// Traversal and reader construction borrow it and own their derived handles.
+	root, err := walker.OpenRoot()
+	if err != nil {
+		upgradeStatus(scanstate.StatusFailed)
+		result.Diagnostics = append(result.Diagnostics, scanstate.Diagnostic{
+			Stage: "setup", Code: scanstate.ReasonInvalidRoot, SafeMessage: "Failed to open trusted root",
+		})
+		return result, fmt.Errorf("opening trusted root: %w", err)
+	}
+	defer root.Close()
+	walkedFiles, inv, walkErr := walker.WalkRoot(ctx, root)
 	result.Coverage.Traversal = scanstate.TraversalCoverage{
 		ExaminedEntries:       &inv.ExaminedEntries,
 		DiscoveredFiles:       &inv.RetainedFiles,
@@ -221,7 +233,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	// Collect Git once, after native root establishment. Git metadata (including
 	// external worktree metadata) is a separate, bounded capability.
 	var pendingGitDiag *scanstate.Diagnostic
-	gitInfo, gitErr := git.CollectSnapshot(ctx, walker.Root())
+	gitInfo, gitErr := collectRootGit(ctx, walker.Root(), root)
 	if gitErr != nil {
 		code := scanstate.ReasonGitFailure
 		message := "Git metadata collection failed; native checks remain available"
@@ -266,15 +278,18 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 
 	aggReadBytes := int64(0)
 	readerConfig := fs.ReaderConfig{
-		RootPath:           walker.Root(),
+		Root:               root,
 		AggregateReadBytes: &aggReadBytes,
 		MaxAggregate:       int64(limits.MaxAggregateReadBytes),
 		SecurityReadLimit:  config.SecurityReadLimit,
 		IsExcluded:         walker.IsExcluded,
 	}
-	guardedReader, err := fs.NewGuardedReader(readerConfig)
+	guardedReader, err := e.newReader(readerConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize guarded reader: %w", err)
+		// Retain inventory-only observations even if reader setup fails. Read
+		// consumers receive an ordinary error through existing coverage handling.
+		upgradeStatus(scanstate.StatusPartial)
+		collector.AddDiagnostic(scanstate.Diagnostic{Stage: "setup", Code: scanstate.ReasonEligibleReadFailure, SafeMessage: "Failed to initialize rooted content reader"})
 	}
 	if guardedReader != nil {
 		defer guardedReader.Close()
@@ -287,6 +302,9 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		Git:       &gitInfo,
 		Inventory: &inv,
 		ReadFile: func(relPath string, maxSize int64) fs.ReadOutcome {
+			if guardedReader == nil {
+				return fs.ReadOutcome{Status: fs.ReadStatusError, Err: err}
+			}
 			return guardedReader.ReadFile(ctx, relPath, fs.ReadOptions{MaxSize: maxSize})
 		},
 		Emit: collector.Emit,
@@ -559,6 +577,35 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	}
 
 	return result, finalErr
+}
+
+// Git's pathname authority is observed for the entire collection interval.
+// Any lost/changed binding or observation failure discards all Git facts, even
+// a non-repository result. Native descriptors continue to refer to the original
+// object. This does not freeze file contents, Git metadata or external worktrees.
+func collectRootGit(ctx context.Context, path string, root *fs.RootHandle) (snapshot scanstate.GitSnapshot, resultErr error) {
+	unknown := scanstate.GitSnapshot{Availability: scanstate.GitAvailabilityUnknown, Applicability: scanstate.GitApplicabilityUnknown, Status: scanstate.CheckStatusPartial, BranchState: scanstate.GitBranchUnknown}
+	if err := ctx.Err(); err != nil {
+		return unknown, err
+	}
+	guard, err := root.GuardPath()
+	if err != nil {
+		return unknown, fmt.Errorf("Git root binding could not be established")
+	}
+	defer func() {
+		if err := guard.Close(); err != nil {
+			snapshot = unknown
+			resultErr = errors.Join(resultErr, fmt.Errorf("closing Git root observer: %w", err))
+		}
+	}()
+	if err := guard.Check(); err != nil {
+		return unknown, fmt.Errorf("Git root binding changed")
+	}
+	snapshot, gitErr := git.CollectSnapshot(ctx, path)
+	if err := guard.Check(); err != nil {
+		return unknown, errors.Join(gitErr, fmt.Errorf("Git root binding changed during collection"))
+	}
+	return snapshot, gitErr
 }
 
 // toCheckFiles converts walker output to the check package's FileInfo type.

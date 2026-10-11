@@ -32,21 +32,31 @@ type readerHooks struct {
 }
 
 type guardedReaderUnix struct {
-	config ReaderConfig
-	rootFd int
-	hooks  *readerHooks
+	config   ReaderConfig
+	rootFile *os.File
+	hooks    *readerHooks
 }
 
 // NewGuardedReader creates a rooted reader for Unix platforms.
 func NewGuardedReader(config ReaderConfig) (GuardedReader, error) {
-	fd, err := unix.Open(config.RootPath, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	var f *os.File
+	var err error
+	if config.Root != nil {
+		f, _, _, err = config.Root.openDirectory()
+	} else {
+		var fd int
+		fd, err = unix.Open(config.RootPath, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+		if err == nil {
+			f = os.NewFile(uintptr(fd), config.RootPath)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to open root dir: %w", err)
 	}
 
 	return &guardedReaderUnix{
-		config: config,
-		rootFd: fd,
+		config:   config,
+		rootFile: f,
 	}, nil
 }
 
@@ -60,12 +70,17 @@ func newGuardedReaderWithHooks(config ReaderConfig, hooks *readerHooks) (Guarded
 }
 
 func (r *guardedReaderUnix) Close() error {
-	return unix.Close(r.rootFd)
+	return r.rootFile.Close()
 }
 
 func (r *guardedReaderUnix) ReadFile(ctx context.Context, relativePath string, opts ReadOptions) ReadOutcome {
 	if err := ctx.Err(); err != nil {
 		return ReadOutcome{Status: ReadStatusError, Err: err}
+	}
+	// Consult the owning os.File, so use after Close cannot reuse a stale fd.
+	rootFd := int(r.rootFile.Fd())
+	if rootFd < 0 {
+		return ReadOutcome{Status: ReadStatusError, Err: os.ErrClosed}
 	}
 
 	if relativePath == "" || relativePath == "." {
@@ -84,7 +99,7 @@ func (r *guardedReaderUnix) ReadFile(ctx context.Context, relativePath string, o
 		}
 	}
 
-	fd, resolvedPath, status, err := resolvePathRelative(ctx, r.rootFd, relativePath, 40, r.config.IsExcluded, resHooks)
+	fd, resolvedPath, status, err := resolvePathRelative(ctx, rootFd, relativePath, 40, r.config.IsExcluded, resHooks)
 	if err != nil {
 		return ReadOutcome{Status: status, Err: err}
 	}
