@@ -96,7 +96,7 @@ func resolvePathRelative(ctx context.Context, rootFd int, relPath string, maxSym
 		}
 
 		if errVal := validateChain(); errVal != nil {
-			return -1, "", ReadStatusSafetyReject, fmt.Errorf("pre-fstatat validation: %w", errVal)
+			return -1, "", ReadStatusError, fmt.Errorf("pre-fstatat validation: %w", errVal)
 		}
 
 		currentTip := stack[len(stack)-1]
@@ -202,12 +202,12 @@ func resolvePathRelative(ctx context.Context, rootFd int, relPath string, maxSym
 
 		if uint64(postStat.Dev) != uint64(stat.Dev) || uint64(postStat.Ino) != uint64(stat.Ino) || (postStat.Mode&unix.S_IFMT) != mode {
 			unix.Close(nextFd)
-			return -1, "", ReadStatusSafetyReject, fmt.Errorf("type or identity changed during open")
+			return -1, "", ReadStatusError, fmt.Errorf("type or identity changed during open")
 		}
 
 		if errVal := validateChain(); errVal != nil {
 			unix.Close(nextFd)
-			return -1, "", ReadStatusSafetyReject, fmt.Errorf("post-open validation: %w", errVal)
+			return -1, "", ReadStatusError, fmt.Errorf("post-open validation: %w", errVal)
 		}
 
 		if mode == unix.S_IFDIR {

@@ -111,8 +111,8 @@ func TestReader_AncestorSwapOutsideRoot(t *testing.T) {
 	if string(out.Data) == "outside sentinel" {
 		t.Fatalf("read outside sentinel!")
 	}
-	if out.Status != ReadStatusSafetyReject {
-		t.Fatalf("expected safety reject from reparent, got %v: %v", out.Status, out.Err)
+	if out.Status != ReadStatusError || out.Err == nil || out.BytesRead != 0 || len(out.Data) != 0 {
+		t.Fatalf("expected required-read error without content from reparent, got %+v", out)
 	}
 }
 
@@ -139,8 +139,8 @@ func TestReader_ReplacementWithFIFO(t *testing.T) {
 	defer r.Close()
 
 	out := r.ReadFile(context.Background(), "file.txt", ReadOptions{MaxSize: 100})
-	if out.Status != ReadStatusSafetyReject && out.Status != ReadStatusError {
-		t.Fatalf("expected reject or error, got %v: %v", out.Status, out.Err)
+	if out.Status != ReadStatusError || out.Err == nil {
+		t.Fatalf("expected required-read error, got %v: %v", out.Status, out.Err)
 	}
 	if out.BytesRead != 0 || len(out.Data) != 0 {
 		t.Fatal("replacement FIFO content accessed")
@@ -190,7 +190,7 @@ func TestReader_MutationCheck(t *testing.T) {
 	defer r.Close()
 
 	out := r.ReadFile(context.Background(), "file.txt", ReadOptions{MaxSize: 100})
-	if out.Status != ReadStatusError && out.Status != ReadStatusSafetyReject {
+	if out.Status != ReadStatusError || out.Err == nil || len(out.Data) != 0 {
 		t.Fatalf("expected error from mutation, got %v", out.Status)
 	}
 }
@@ -393,8 +393,8 @@ func TestReader_SameTypeReplacement(t *testing.T) {
 	defer r.Close()
 
 	out := r.ReadFile(context.Background(), "fileA.txt", ReadOptions{MaxSize: 100})
-	if out.Status != ReadStatusSafetyReject {
-		t.Fatalf("expected safety reject from same-type replacement, got %v: %v", out.Status, out.Err)
+	if out.Status != ReadStatusError || out.Err == nil || out.BytesRead != 0 || len(out.Data) != 0 {
+		t.Fatalf("expected required-read error without content from same-type replacement, got %+v", out)
 	}
 }
 

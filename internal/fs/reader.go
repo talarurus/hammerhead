@@ -12,8 +12,11 @@ const (
 	ReadStatusBinary        ReadStatus = "binary"
 	ReadStatusTooLarge      ReadStatus = "too_large"
 	ReadStatusBudgetExhaust ReadStatus = "budget_exhaust"
-	ReadStatusSafetyReject  ReadStatus = "safety_reject"
-	ReadStatusError         ReadStatus = "error"
+	// SafetyReject is an expected policy rejection, such as an excluded target
+	// or unsupported type. Detected identity/ancestor failures use Error.
+	ReadStatusSafetyReject ReadStatus = "safety_reject"
+	// Error means required reading could not complete, including detected mutation.
+	ReadStatusError ReadStatus = "error"
 )
 
 // ReadOutcome contains the safe read result.

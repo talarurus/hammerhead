@@ -171,7 +171,8 @@ func (c *SecretPatternCheck) Run(ctx context.Context, sc *ScanContext) error {
 			continue
 		}
 
-		// SEC-001 expected exclusions: binary files, too large, safety rejects
+		// Expected policy skips: binary, too large, or safety rejection.
+		// Detected identity/ancestor failures arrive as ReadStatusError above.
 		if outcome.Status != fs.ReadStatusText {
 			continue
 		}
