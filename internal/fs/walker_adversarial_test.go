@@ -56,22 +56,58 @@ func TestWalk_Adversarial_AncestorSwapOutsideRoot(t *testing.T) {
 
 func TestWalk_Adversarial_ChildDirectoryReplacedWithInode(t *testing.T) {
 	tmpDir := t.TempDir()
+	childPath := filepath.Join(tmpDir, "A")
 
-	os.MkdirAll(filepath.Join(tmpDir, "A"), 0755)
+	if err := os.Mkdir(childPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Keep the original inode allocated after unlinking it. Without this handle,
+	// the filesystem may reuse its device/inode pair for the replacement, so the
+	// fixture would not actually exercise the changed-identity check.
+	original, err := os.Open(childPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer original.Close()
+	var originalIdentity unix.Stat_t
+	if err := unix.Fstat(int(original.Fd()), &originalIdentity); err != nil {
+		t.Fatal(err)
+	}
 
 	swapped := false
 	*fs.TestHookBeforeOpenDir = func(childName string) {
 		if childName == "A" && !swapped {
-			os.RemoveAll(filepath.Join(tmpDir, "A"))
-			os.MkdirAll(filepath.Join(tmpDir, "A"), 0755) // New inode!
-			os.WriteFile(filepath.Join(tmpDir, "A", "secret.txt"), []byte("data"), 0644)
+			if err := os.RemoveAll(childPath); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(childPath, 0755); err != nil {
+				t.Fatal(err)
+			}
+			var replacementIdentity unix.Stat_t
+			if err := unix.Lstat(childPath, &replacementIdentity); err != nil {
+				t.Fatal(err)
+			}
+			if originalIdentity.Dev == replacementIdentity.Dev && originalIdentity.Ino == replacementIdentity.Ino {
+				t.Fatalf("fixture did not replace directory identity: dev=%d ino=%d", originalIdentity.Dev, originalIdentity.Ino)
+			}
+			t.Logf("directory replacement: original dev=%d ino=%d; replacement dev=%d ino=%d",
+				originalIdentity.Dev, originalIdentity.Ino, replacementIdentity.Dev, replacementIdentity.Ino)
+			if err := os.WriteFile(filepath.Join(childPath, "secret.txt"), []byte("data"), 0644); err != nil {
+				t.Fatal(err)
+			}
 			swapped = true
 		}
 	}
 	defer func() { *fs.TestHookBeforeOpenDir = nil }()
 
-	walker, _ := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{})
+	walker, err := fs.NewSafeWalker(tmpDir, &fs.WalkerConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	files, inv, err := walker.Walk(context.Background())
+	if !swapped {
+		t.Fatal("directory replacement hook did not run")
+	}
 
 	for _, f := range files {
 		if strings.Contains(f.Path, "secret.txt") {
