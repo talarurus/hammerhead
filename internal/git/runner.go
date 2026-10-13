@@ -148,7 +148,7 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 	return out, nil
 }
 
-func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir string, args ...string) (string, error) {
+func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir string, args ...string) (_ string, d2ResultErr error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
@@ -161,7 +161,11 @@ func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir stri
 	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, CommandTimeout)
-	defer cancel()
+	d2Trace := d2BeginChild(ctx, cmdCtx, args)
+	defer func() {
+		d2Trace.finish(d2ResultErr)
+		cancel()
+	}()
 
 	safeArgs := []string{
 		"--no-pager",
@@ -207,6 +211,9 @@ func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir stri
 
 	cmd.Stdout = outW
 	cmd.Stderr = errW
+	if d2Trace != nil {
+		d2Trace.cmd, d2Trace.stderr = cmd, stderrBuf
+	}
 
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("starting git: %w", err)
@@ -214,7 +221,11 @@ func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir stri
 
 	waitDone := make(chan error, 1)
 	go func() {
-		waitDone <- cmd.Wait()
+		err := cmd.Wait()
+		if d2Trace != nil {
+			d2Trace.complete.Store(true)
+		}
+		waitDone <- err
 	}()
 
 	var waitErr error
@@ -226,6 +237,9 @@ func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir stri
 	}
 
 	waitErr, cleanupErr := cleanupProcessGroup(cmd, waitDone, waitErr, waited)
+	if d2Trace != nil {
+		d2Trace.waitErr, d2Trace.cleanupErr = waitErr, cleanupErr
+	}
 	v.budget.output += stdoutBuf.Len() + stderrBuf.Len()
 	// The parent scan reason takes precedence over output overflow and the
 	// command's private deadline. Retain any cleanup failure as well.

@@ -274,7 +274,7 @@ func TestMetadata_BranchAndApplicability(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			s, err := CollectSnapshot(context.Background(), selected)
+			s, err := CollectSnapshot(d2TestContext(context.Background(), name), selected)
 			if err != nil {
 				t.Fatal(s, err)
 			}

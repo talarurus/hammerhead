@@ -35,7 +35,14 @@ jobs:
           cache: true
       - name: Record native platform and toolchain
         run: |
+          d2_trace_dir="${RUNNER_TEMP}/hammerhead-d2-trace"
+          mkdir -m 700 "$d2_trace_dir"
+          printf 'HAMMERHEAD_D2_TRACE_DIR=%s\n' "$d2_trace_dir" >> "$GITHUB_ENV"
           uname -sm
+          git --version
+          printf 'Runner image: %s / %s\n' "$ImageOS" "$ImageVersion"
+          if [ -r /etc/os-release ]; then cat /etc/os-release; else sw_vers; fi
+          ulimit -a
           go version
           go env GOOS GOARCH CGO_ENABLED
       - name: Verify formatting
@@ -49,8 +56,12 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Full tests
+        env:
+          HAMMERHEAD_D2_PHASE: full-normal
         run: go test -count=1 ./...
       - name: Race tests
+        env:
+          HAMMERHEAD_D2_PHASE: full-race
         run: go test -race -count=1 ./...
       - name: Integrated adversarial gates
         run: go test -count=1 -v ./internal/cli ./internal/engine ./internal/fs ./internal/check -run 'Test(CLI_(PartialScanEndToEnd|CancelDuringScan|SpecialFileNoHang|ActualTerminalInjection|GitTimeoutRetainsNativeFindings|InvalidResultEnums)|Acceptance_|Walk_LimitsStopEnumeration|ParseByteSize_Boundaries|SecretPatternCheck_MatchFloodBounded)'
@@ -66,3 +77,21 @@ jobs:
               CGO_ENABLED=0 GOOS="$target_os" GOARCH="$target_arch" go build -o "$build_dir/hammerhead-$target_os-$target_arch" ./cmd/hammerhead
             done
           done
+      - name: D2 bounded focused race repetitions
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.go == '1.26.0'
+        env:
+          HAMMERHEAD_D2_PHASE: focused-race
+        run: go test -race -count=200 -timeout=180s -v ./internal/git -run '^TestMetadata_BranchAndApplicability$/^normal$'
+      - name: D2 bounded complete Git package race repetitions
+        if: always() && matrix.os == 'ubuntu-24.04' && matrix.go == '1.26.0'
+        env:
+          HAMMERHEAD_D2_PHASE: git-package-race
+        run: go test -race -count=3 -timeout=300s -v ./internal/git
+      - name: Retain bounded D2 stage traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: d2-preparation-${{ matrix.os }}-go-${{ matrix.go }}
+          path: ${{ runner.temp }}/hammerhead-d2-trace/*.jsonl
+          if-no-files-found: error
+          retention-days: 14
