@@ -53,3 +53,43 @@ func TestGitBoundary_NoRawMetadataOrCheckExecution(t *testing.T) {
 		return true
 	})
 }
+
+func TestGitBoundary_PrivateProcessCapability(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(token.NewFileSet(), entry.Name(), nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if sel, ok := n.(*ast.SelectorExpr); ok {
+				if id, ok := sel.X.(*ast.Ident); ok && id.Name == "exec" && (sel.Sel.Name == "Command" || sel.Sel.Name == "CommandContext" || sel.Sel.Name == "LookPath") && entry.Name() != "runner.go" {
+					t.Errorf("process authority escaped runner: %s", entry.Name())
+				}
+			}
+			if fn, ok := n.(*ast.FuncDecl); ok && fn.Name.Name == "runControlled" {
+				if fn.Name.IsExported() {
+					t.Fatal("raw runner exported")
+				}
+				found := false
+				for _, field := range fn.Type.Params.List {
+					if p, ok := field.Type.(*ast.StarExpr); ok {
+						if id, ok := p.X.(*ast.Ident); ok && id.Name == "metadataView" {
+							found = true
+						}
+					}
+				}
+				if !found {
+					t.Fatal("runner lost required private capability")
+				}
+			}
+			return true
+		})
+	}
+}

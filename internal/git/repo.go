@@ -1,5 +1,5 @@
-// Package git provides bounded Git metadata collection. Git may follow worktree
-// metadata outside the audit root; this is separate from native content scope.
+// Package git provides bounded Git collection through an admitted private
+// metadata view. Repository configuration never becomes live child policy.
 package git
 
 import (
@@ -25,7 +25,7 @@ type commandRunner interface {
 
 // CollectSnapshot collects all Git context before checks run. The caller must
 // first validate the native audit root. There is no raw metadata fallback.
-func CollectSnapshot(ctx context.Context, path string) (scanstate.GitSnapshot, error) {
+func CollectSnapshot(ctx context.Context, path string) (snapshot scanstate.GitSnapshot, resultErr error) {
 	s := unknownSnapshot()
 	if err := ctx.Err(); err != nil {
 		return failedSnapshot(s, err)
@@ -39,7 +39,36 @@ func CollectSnapshot(ctx context.Context, path string) (scanstate.GitSnapshot, e
 	if err != nil {
 		return failedSnapshot(s, err)
 	}
-	return collectSnapshot(ctx, path, runner)
+	s.Availability = scanstate.GitAvailable
+	v, err := prepareMetadata(ctx, path, runner, newMetadataBudget(ctx))
+	if errors.Is(err, ErrNotARepository) {
+		s.Applicability = scanstate.GitNonRepository
+		s.Status = scanstate.CheckStatusNotApplicable
+		return s, nil
+	}
+	if err != nil {
+		return failedSnapshot(s, err)
+	}
+	defer func() {
+		if err := v.Close(); err != nil {
+			resultErr = errors.Join(resultErr, err)
+			snapshot, _ = failedSnapshot(s, resultErr)
+		}
+	}()
+	evalCtx, cancel := context.WithTimeout(ctx, evaluationDuration)
+	defer cancel()
+	snapshot, resultErr = collectSnapshot(evalCtx, path, v)
+	if evalCtx.Err() != nil && ctx.Err() == nil {
+		snapshot.Status = scanstate.CheckStatusPartial
+		resultErr = ErrGitTimeout
+	}
+	if err := v.verify(); err != nil {
+		return failedSnapshot(s, errors.Join(resultErr, err))
+	}
+	if ctx.Err() != nil {
+		return failedSnapshot(s, ctx.Err())
+	}
+	return snapshot, resultErr
 }
 
 func unknownSnapshot() scanstate.GitSnapshot {

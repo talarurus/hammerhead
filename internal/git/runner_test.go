@@ -274,7 +274,7 @@ func TestGitRunner_Timeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	_, err = runner.Run(context.Background(), targetDir)
+	_, err = runner.RunTrustedFixture(context.Background(), targetDir)
 	elapsed := time.Since(start)
 	if !errors.Is(err, git.ErrGitTimeout) {
 		t.Fatalf("expected ErrGitTimeout, got %v", err)
@@ -295,7 +295,7 @@ func TestGitRunner_StdoutLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runner.Run(context.Background(), targetDir)
+	_, err = runner.RunTrustedFixture(context.Background(), targetDir)
 	if !errors.Is(err, git.ErrStdoutLimit) {
 		t.Fatalf("expected ErrStdoutLimit, got %v", err)
 	}
@@ -328,7 +328,7 @@ func TestGitRunner_StderrLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runner.Run(context.Background(), targetDir)
+	_, err = runner.RunTrustedFixture(context.Background(), targetDir)
 	if !errors.Is(err, git.ErrStderrLimit) {
 		t.Fatalf("expected ErrStderrLimit, got %v", err)
 	}
@@ -364,7 +364,7 @@ func TestGitRunner_ExactLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runner.Run(context.Background(), targetDir)
+	out, err := runner.RunTrustedFixture(context.Background(), targetDir)
 	if err != nil {
 		t.Fatalf("expected success on exact limit, got %v", err)
 	}
@@ -383,7 +383,7 @@ func TestGitRunner_ExactStderrLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runner.Run(context.Background(), targetDir)
+	out, err := runner.RunTrustedFixture(context.Background(), targetDir)
 	if err != nil {
 		t.Fatalf("expected success on exact stderr limit, got %v", err)
 	}
@@ -402,7 +402,7 @@ func TestGitRunner_Environment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runner.Run(context.Background(), targetDir)
+	out, err := runner.RunTrustedFixture(context.Background(), targetDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +436,7 @@ func TestGitRunner_CancelActive(t *testing.T) {
 	// Run in a separate goroutine so we can wait for .started
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := runner.Run(ctx, targetDir)
+		_, err := runner.RunTrustedFixture(ctx, targetDir)
 		errCh <- err
 	}()
 
@@ -492,7 +492,7 @@ func TestGitRunner_ForceKill(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := runner.Run(ctx, targetDir)
+		_, err := runner.RunTrustedFixture(ctx, targetDir)
 		errCh <- err
 	}()
 
@@ -554,7 +554,7 @@ func TestGitRunner_StderrSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runner.Run(context.Background(), targetDir)
+	_, err = runner.RunTrustedFixture(context.Background(), targetDir)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -579,7 +579,7 @@ func TestGitRunner_NotARepo(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = runner.Run(context.Background(), targetDir, "rev-parse", "--show-toplevel")
+	_, err = runner.RunTrustedFixture(context.Background(), targetDir, "rev-parse", "--show-toplevel")
 	if !errors.Is(err, git.ErrNotARepository) {
 		t.Fatalf("expected ErrNotARepository, got %v", err)
 	}
@@ -598,7 +598,7 @@ func TestGitRunner_DescendantNoPipeCleanup(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = runner.Run(ctx, targetDir)
+	_, err = runner.RunTrustedFixture(ctx, targetDir)
 	if err != nil {
 		t.Fatalf("expected success, got %v", err)
 	}
@@ -671,7 +671,7 @@ func TestGitRunner_CancelBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel before run
 
-	_, err = runner.Run(ctx, targetDir)
+	_, err = runner.RunTrustedFixture(ctx, targetDir)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}

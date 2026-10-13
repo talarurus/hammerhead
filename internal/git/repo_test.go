@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/talarurus/hammerhead/internal/git"
+	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
 func TestDetectRepo_NonGitDir(t *testing.T) {
@@ -120,11 +122,11 @@ func TestGetWorktreeStatus_SubmoduleIgnore(t *testing.T) {
 	}
 
 	info, err := git.GetWorktreeStatus(context.Background(), tempDir)
-	if err != nil {
-		t.Fatalf("GetWorktreeStatus failed: %v", err)
+	if !errors.Is(err, git.ErrUnsafeGitMetadata) || info != nil {
+		t.Fatalf("gitlinks must refuse before status: %+v %v", info, err)
 	}
-
-	if info.IsDirty || info.ModifiedCount != 0 || info.UntrackedCount != 0 {
-		t.Fatalf("expected submodule modifications to be ignored, got %+v", info)
+	snapshot, err := git.CollectSnapshot(context.Background(), tempDir)
+	if !errors.Is(err, git.ErrUnsafeGitMetadata) || snapshot.Status != scanstate.CheckStatusPartial || snapshot.Availability != scanstate.GitAvailable || snapshot.ModifiedCount != 0 || snapshot.UntrackedCount != 0 {
+		t.Fatal(snapshot, err)
 	}
 }

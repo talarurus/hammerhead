@@ -42,7 +42,8 @@ const (
 )
 
 type GitRunner struct {
-	gitPath string
+	gitPath    string
+	lookupPath string
 }
 
 func NewGitRunner(targetDir string) (*GitRunner, error) {
@@ -77,12 +78,13 @@ func NewGitRunner(targetDir string) (*GitRunner, error) {
 		targets = []string{absTarget, evalTarget}
 	}
 
+	lookupPath := path
 	path, err = resolveTrustedGitPath(path, targets)
 	if err != nil {
 		return nil, err
 	}
 
-	return &GitRunner{gitPath: path}, nil
+	return &GitRunner{gitPath: path, lookupPath: lookupPath}, nil
 }
 
 // Check every symlink hop, including aliases that leave the target again.
@@ -130,14 +132,44 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	if !queryAllowed(args) {
+		return "", refuse("unsupported query")
+	}
+	v, err := prepareMetadata(ctx, dir, r, newMetadataBudget(ctx))
+	if err != nil {
+		return "", err
+	}
+	out, runErr := v.Run(ctx, dir, args...)
+	verifyErr := v.verify()
+	closeErr := v.Close()
+	if err := errors.Join(runErr, verifyErr, closeErr); err != nil {
+		return "", err
+	}
+	return out, nil
+}
+
+func (r *GitRunner) runControlled(ctx context.Context, v *metadataView, dir string, args ...string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if v == nil || v.closed || v.dir == "" || v.home == "" {
+		return "", refuse("missing view capability")
+	}
+	v.budget.commands++
+	if v.budget.commands > 8 {
+		return "", refuse("child budget")
+	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, CommandTimeout)
 	defer cancel()
 
 	safeArgs := []string{
 		"--no-pager",
-		"-c", "core.fsmonitor=",
+		"--no-lazy-fetch",
+		"-c", "core.fsmonitor=false",
 		"-c", "core.hooksPath=/dev/null",
+		"-c", "core.attributesFile=/dev/null",
+		"-c", "core.untrackedCache=false",
 	}
 	safeArgs = append(safeArgs, args...)
 
@@ -147,13 +179,22 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 
 	cmd.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + os.Getenv("HOME"),
+		"HOME=" + v.home,
+		"XDG_CONFIG_HOME=" + filepath.Join(v.home, "xdg"),
+		"GIT_DIR=" + v.dir,
+		"GIT_WORK_TREE=" + v.root,
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_CONFIG_SYSTEM=/dev/null",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_NO_LAZY_FETCH=1",
+		"GIT_ATTR_NOSYSTEM=1",
 		"LC_ALL=C",
+	}
+	if len(args) == 2 && args[0] == "var" && args[1] == "GIT_ATTR_SYSTEM" {
+		// var reports the compiled runtime path without reading attributes.
+		cmd.Env[len(cmd.Env)-2] = "GIT_ATTR_NOSYSTEM=0"
 	}
 
 	cmd.WaitDelay = 1 * time.Second
@@ -185,6 +226,7 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 	}
 
 	waitErr, cleanupErr := cleanupProcessGroup(cmd, waitDone, waitErr, waited)
+	v.budget.output += stdoutBuf.Len() + stderrBuf.Len()
 	// The parent scan reason takes precedence over output overflow and the
 	// command's private deadline. Retain any cleanup failure as well.
 	if err := ctx.Err(); err != nil {
@@ -192,6 +234,9 @@ func (r *GitRunner) Run(ctx context.Context, dir string, args ...string) (string
 	}
 	if cleanupErr != nil {
 		return "", cleanupErr
+	}
+	if v.budget.output > metadataOutputBytes {
+		return "", refuse("aggregate output budget")
 	}
 
 	if outW.overflowed {

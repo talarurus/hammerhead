@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/talarurus/hammerhead/internal/check"
 	"github.com/talarurus/hammerhead/internal/finding"
@@ -230,13 +231,16 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
-	// Collect Git once, after native root establishment. Git metadata (including
-	// external worktree metadata) is a separate, bounded capability.
+	// Collect Git once, after native root establishment, through an admitted
+	// private metadata capability. Native checks remain independent.
 	var pendingGitDiag *scanstate.Diagnostic
 	gitInfo, gitErr := collectRootGit(ctx, walker.Root(), root)
 	if gitErr != nil {
 		code := scanstate.ReasonGitFailure
 		message := "Git metadata collection failed; native checks remain available"
+		if errors.Is(gitErr, git.ErrUnsafeGitMetadata) {
+			message = "Git evaluation refused because metadata safety could not be established; native checks remain available"
+		}
 		if ctx.Err() != nil {
 			upgradeStatus(scanstate.StatusCancelled)
 			code = scanstate.ReasonUserCancelled
@@ -587,6 +591,11 @@ func collectRootGit(ctx context.Context, path string, root *fs.RootHandle) (snap
 	unknown := scanstate.GitSnapshot{Availability: scanstate.GitAvailabilityUnknown, Applicability: scanstate.GitApplicabilityUnknown, Status: scanstate.CheckStatusPartial, BranchState: scanstate.GitBranchUnknown}
 	if err := ctx.Err(); err != nil {
 		return unknown, err
+	}
+	// Refuse excessive discovery depth before R1 allocates ancestor watches.
+	// This path can yield only refusal/unavailable, never repository facts.
+	if strings.Count(filepath.Clean(path), string(filepath.Separator))+1 > git.MaxDetectionAncestorSteps {
+		return git.CollectSnapshot(ctx, path)
 	}
 	guard, err := root.GuardPath()
 	if err != nil {

@@ -43,6 +43,17 @@ func runCLITests(m *testing.M) int {
 	return m.Run()
 }
 
+// Static native-scan fixtures must not inherit the developer checkout's Git
+// layout or policy. Keep their bytes and every CLI assertion unchanged.
+func isolatedCLIStaticFixture(t *testing.T, name string) (string, error) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("../../testdata/repos", name))); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
 func TestCLI_Version(t *testing.T) {
 	cmd := exec.Command(binaryPath, "version")
 	out, err := cmd.CombinedOutput()
@@ -55,7 +66,7 @@ func TestCLI_Version(t *testing.T) {
 }
 
 func TestCLI_AuditCleanRepo(t *testing.T) {
-	cleanDir, err := filepath.Abs("../../testdata/repos/clean")
+	cleanDir, err := isolatedCLIStaticFixture(t, "clean")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +83,7 @@ func TestCLI_AuditCleanRepo(t *testing.T) {
 }
 
 func TestCLI_AuditDirtyRepo_Exit1(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +113,7 @@ func TestCLI_AuditDirtyRepo_Exit1(t *testing.T) {
 }
 
 func TestCLI_AuditDirtyRepo_FailOnNone(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +131,7 @@ func TestCLI_AuditDirtyRepo_FailOnNone(t *testing.T) {
 }
 
 func TestCLI_AuditDirtyRepo_FailOnCritical(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +153,7 @@ func TestCLI_AuditDirtyRepo_FailOnCritical(t *testing.T) {
 }
 
 func TestCLI_AuditJSONOutput(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +425,7 @@ func TestCLI_AuditHygieneRepo_FailOnLowExits0(t *testing.T) {
 }
 
 func TestCLI_AuditExcludeFlag(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +497,7 @@ func TestCLI_AuditMaxFileSizeFlag(t *testing.T) {
 }
 
 func TestCLI_AuditQuietFlag(t *testing.T) {
-	dirtyDir, err := filepath.Abs("../../testdata/repos/dirty")
+	dirtyDir, err := isolatedCLIStaticFixture(t, "dirty")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -197,6 +197,18 @@ func TestCLI_ActualTerminalInjection(t *testing.T) {
 // Trusted synthetic Git executable: the real CLI and production runner invoke
 // this test binary outside the target. No shell, credentials or live Git hook.
 func runC15GitHelper() {
+	args := strings.Join(os.Args[1:], " ")
+	if strings.Contains(args, "config --null --list --no-includes --file ") {
+		os.Stdout.WriteString("core.repositoryformatversion\n0\x00")
+		return
+	}
+	if strings.HasSuffix(args, "var GIT_ATTR_SYSTEM") {
+		os.Stdout.WriteString("/etc/gitattributes\n")
+		return
+	}
+	if strings.HasSuffix(args, "ls-files --stage --sparse -v -z") {
+		return
+	}
 	data, err := os.ReadFile(".g12-mode")
 	if err != nil {
 		os.Exit(89)
@@ -221,6 +233,19 @@ func TestCLI_GitTimeoutRetainsNativeFindings(t *testing.T) {
 	for _, mode := range []string{"timeout", "failure"} {
 		t.Run(mode, func(t *testing.T) {
 			root := g11EmptyRepo(t)
+			for _, n := range []string{"refs", "objects"} {
+				if err := os.MkdirAll(filepath.Join(root, ".git", n), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for n, data := range map[string]string{"HEAD": "ref: refs/heads/main\n", "config": "[core]\nrepositoryformatversion=0\n"} {
+				if err := os.WriteFile(filepath.Join(root, ".git", n), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			home := t.TempDir()
+			t.Setenv("HOME", home)
+			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 			for name, data := range map[string]string{"id_rsa": "synthetic filename fixture", ".g12-mode": mode} {
 				if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0600); err != nil {
 					t.Fatal(err)

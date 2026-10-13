@@ -190,7 +190,7 @@ func TestEngine_GitSnapshotCollectedOnceBeforeChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(strings.Split(strings.TrimSpace(string(data)), "\n")) != 4 || strings.Count(string(data), "status --porcelain") != 1 || strings.Count(string(data), "symbolic-ref") != 1 {
+	if len(strings.Split(strings.TrimSpace(string(data)), "\n")) != 7 || strings.Count(string(data), "status --porcelain") != 1 || strings.Count(string(data), "symbolic-ref") != 1 {
 		t.Fatal(string(data))
 	}
 	count := 0
@@ -212,12 +212,28 @@ func TestEngine_GitSnapshotCollectedOnceBeforeChecks(t *testing.T) {
 func installSnapshotGit(t *testing.T, root, statusBody, branchBody string) string {
 	t.Helper()
 	bin := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
+	for _, name := range []string{"refs", "objects"} {
+		if err := os.MkdirAll(filepath.Join(root, ".git", name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, data := range map[string]string{"config": "[core]\nrepositoryformatversion=0\n", "HEAD": "ref: refs/heads/main\n"} {
+		if err := os.WriteFile(filepath.Join(root, ".git", name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	log := filepath.Join(bin, "calls")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> '" + log + "'\ncase \"$*\" in\n" +
 		"*'rev-parse --show-toplevel') printf '%s\\n' '" + root + "';;\n" +
 		"*'symbolic-ref --quiet HEAD') " + branchBody + ";;\n" +
 		"*'show-ref --verify --quiet refs/heads/main') exit 1;;\n" +
 		"*'status --porcelain=v1 -z --ignore-submodules=all') " + statusBody + ";;\n" +
+		"*'config --null --list --no-includes --file '*) printf 'core.repositoryformatversion\\n0\\000';;\n" +
+		"*'var GIT_ATTR_SYSTEM') printf '/etc/gitattributes\\n';;\n" +
+		"*'ls-files --stage --sparse -v -z') exit 0;;\n" +
 		"*) exit 128;;\nesac\n"
 	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
 		t.Fatal(err)

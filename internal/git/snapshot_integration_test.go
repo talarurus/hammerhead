@@ -44,16 +44,32 @@ func TestGitSnapshot_RunnerQuietBranchDiagnostics(t *testing.T) {
 						t.Fatal(err)
 					}
 					bin := t.TempDir()
+					for _, name := range []string{"refs", "objects"} {
+						if err := os.MkdirAll(filepath.Join(root, ".git", name), 0700); err != nil {
+							t.Fatal(err)
+						}
+					}
+					for name, data := range map[string]string{"config": "[core]\nrepositoryformatversion=0\n", "HEAD": "ref: refs/heads/main\n"} {
+						if err := os.WriteFile(filepath.Join(root, ".git", name), []byte(data), 0600); err != nil {
+							t.Fatal(err)
+						}
+					}
+					home := t.TempDir()
+					t.Setenv("HOME", home)
+					t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
 					// Exercise the actual runner (including captured stderr), typed
 					// exit error and public snapshot collector with a trusted fixture.
 					script := `#!/bin/sh
-shift 5
-printf '%s\n' "$*" >> .calls
-if [ "$*" = "$(/bin/cat .query)" ]; then
-    /bin/cat .stderr >&2
+shift 10
+printf '%s\n' "$*" >> "$GIT_WORK_TREE/.calls"
+if [ "$*" = "$(/bin/cat "$GIT_WORK_TREE/.query")" ]; then
+    /bin/cat "$GIT_WORK_TREE/.stderr" >&2
     exit 1
 fi
 case "$*" in
+    'config --null --list --no-includes --file '*) printf 'core.repositoryformatversion\n0\000' ;;
+    'var GIT_ATTR_SYSTEM') printf '/etc/gitattributes\n' ;;
+    'ls-files --stage --sparse -v -z') exit 0 ;;
     'rev-parse --show-toplevel') pwd -P ;;
     'symbolic-ref --quiet HEAD') printf 'refs/heads/main\n' ;;
     'rev-parse --verify HEAD^{commit}') printf 'synthetic-object-id\n' ;;
@@ -243,24 +259,27 @@ func TestGitSnapshot_WorktreeGitfileAndAuditedSubdirectory(t *testing.T) {
 	}
 	worktree := filepath.Join(parent, "worktree with spaces\n")
 	snapshotGit(t, root, "worktree", "add", "-b", "linked", worktree)
-	s := assertSnapshot(t, worktree, scanstate.GitBranchNormal)
+	s, refusal := git.CollectSnapshot(context.Background(), worktree)
+	if !errors.Is(refusal, git.ErrUnsafeGitMetadata) || s.Status != scanstate.CheckStatusPartial || s.Availability != scanstate.GitAvailable || s.Root != "" {
+		t.Fatal(s, refusal)
+	}
 	marker, err := os.Stat(filepath.Join(worktree, ".git"))
 	if err != nil || !marker.Mode().IsRegular() {
 		t.Fatal(marker, err)
 	}
-	if s.Branch != "linked" || s.Root != worktree {
-		t.Fatal(s)
-	}
-	sub := filepath.Join(worktree, "sub")
+	// A separate ordinary repository retains supported subdirectory behavior.
+	ordinary := initSnapshotRepo(t)
+	commitSnapshotRepo(t, ordinary)
+	sub := filepath.Join(ordinary, "sub")
 	if err := os.Mkdir(sub, 0700); err != nil {
 		t.Fatal(err)
 	}
 	// The whole tree is dirty, but subdirectory health must remain non-applicable.
-	if err := os.WriteFile(filepath.Join(worktree, "outside-subdir"), []byte("synthetic"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(ordinary, "outside-subdir"), []byte("synthetic"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	s, err = git.CollectSnapshot(context.Background(), sub)
-	if err != nil || s.Status != scanstate.CheckStatusNotApplicable || s.Applicability != scanstate.GitSubdirectory || s.Root != worktree || s.UntrackedCount != 0 {
+	if err != nil || s.Status != scanstate.CheckStatusNotApplicable || s.Applicability != scanstate.GitSubdirectory || s.Root != ordinary || s.UntrackedCount != 0 {
 		t.Fatal(s, err)
 	}
 }

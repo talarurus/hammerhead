@@ -101,10 +101,22 @@ func TestA2R1_CLIHandoff(t *testing.T) {
 						}
 						ready, release := fifo("ready"), fifo("release")
 						quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
-						script := fmt.Sprintf("#!/bin/sh\nprintf 'ready\\n' > %s\nread token < %s\nprintf 'fatal: not a git repository (or any of the parent directories): .git\\n' >&2\nexit 128\n", quote(ready.Name()), quote(release.Name()))
-						if kind == "directory" || kind == "restored" || kind == "ancestor-restored" {
-							script = fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*'rev-parse --show-toplevel') printf 'ready\\n' > %s; read token < %s; printf '%%s\\n' %s;;\n*'symbolic-ref --quiet HEAD') printf 'refs/heads/main\\n';;\n*'show-ref --verify --quiet refs/heads/main') exit 1;;\n*'status --porcelain=v1 -z --ignore-submodules=all') printf '?? synthetic\\000';;\n*) exit 128;;\nesac\n", quote(ready.Name()), quote(release.Name()), quote(root))
+						// The controlled collector discovers metadata natively. Supply an
+						// ordinary unborn fixture so the existing root-query barrier still
+						// exercises the entire R1 pathname handoff under the private view.
+						for _, name := range []string{"refs", "objects"} {
+							if err := os.MkdirAll(filepath.Join(root, ".git", name), 0700); err != nil {
+								t.Fatal(err)
+							}
 						}
+						write(filepath.Join(root, ".git", "config"), "[core]\nrepositoryformatversion=0\n")
+						write(filepath.Join(root, ".git", "HEAD"), "ref: refs/heads/main\n")
+						home := filepath.Join(base, "home")
+						if err := os.Mkdir(home, 0700); err != nil {
+							t.Fatal(err)
+						}
+						script := fmt.Sprintf("#!/bin/sh\ncase \"$*\" in\n*'config --null --list --no-includes --file '*) printf 'core.repositoryformatversion\\n0\\000';;\n*'var GIT_ATTR_SYSTEM') printf '/etc/gitattributes\\n';;\n*'ls-files --stage --sparse -v -z') exit 0;;\n*'rev-parse --show-toplevel') printf 'ready\\n' > %s; read token < %s; printf '%%s\\n' %s;;\n*'symbolic-ref --quiet HEAD') printf 'refs/heads/main\\n';;\n*'show-ref --verify --quiet refs/heads/main') exit 1;;\n*'status --porcelain=v1 -z --ignore-submodules=all') exit 0;;\n*) exit 128;;\nesac\n", quote(ready.Name()), quote(release.Name()), quote(root))
+
 						if err := os.WriteFile(filepath.Join(bin, "git"), []byte(script), 0700); err != nil {
 							t.Fatal(err)
 						}
@@ -118,7 +130,7 @@ func TestA2R1_CLIHandoff(t *testing.T) {
 						}
 						cmd := exec.CommandContext(ctx, binaryPath, args...)
 						cmd.WaitDelay = time.Second
-						cmd.Env = append(os.Environ(), "PATH="+bin, "NO_COLOR=1")
+						cmd.Env = append(os.Environ(), "PATH="+bin, "NO_COLOR=1", "HOME="+home, "XDG_CONFIG_HOME="+filepath.Join(home, "xdg"))
 						var out, diag bytes.Buffer
 						cmd.Stdout, cmd.Stderr = &out, &diag
 						if err := cmd.Start(); err != nil {
@@ -148,7 +160,7 @@ func TestA2R1_CLIHandoff(t *testing.T) {
 							}
 						case err := <-done:
 							finished = true
-							t.Fatalf("scan ended before barrier: %v", err)
+							t.Fatalf("scan ended before barrier: %v stdout=%s stderr=%s", err, out.String(), diag.String())
 						case <-ctx.Done():
 							t.Fatal("Git barrier watchdog fired")
 						}

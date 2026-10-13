@@ -153,7 +153,7 @@ func TestGitRunner_StubbornDescendantShutdown(t *testing.T) {
 				}
 			})
 			go func() {
-				_, err := runner.Run(ctx, dir)
+				_, err := runner.RunTrustedFixture(ctx, dir)
 				done <- err
 				close(done)
 			}()
