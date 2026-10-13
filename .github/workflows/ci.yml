@@ -22,7 +22,6 @@ jobs:
         go: ['1.26.0', 'stable']
     env:
       GOTOOLCHAIN: local
-      HAMMERHEAD_D2_TRACE_DIR: ${{ runner.temp }}/hammerhead-d2-trace
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,7 +35,9 @@ jobs:
           cache: true
       - name: Record native platform and toolchain
         run: |
-          mkdir -m 700 "$HAMMERHEAD_D2_TRACE_DIR"
+          d2_trace_dir="${RUNNER_TEMP}/hammerhead-d2-trace"
+          mkdir -m 700 "$d2_trace_dir"
+          printf 'HAMMERHEAD_D2_TRACE_DIR=%s\n' "$d2_trace_dir" >> "$GITHUB_ENV"
           uname -sm
           git --version
           printf 'Runner image: %s / %s\n' "$ImageOS" "$ImageVersion"
