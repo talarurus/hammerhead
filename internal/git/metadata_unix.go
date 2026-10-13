@@ -115,6 +115,7 @@ func (s *metadataSource) openDir(parent *os.File, name string, owned bool) (*os.
 	}
 	var before unix.Stat_t
 	if err := unix.Fstatat(fd, name, &before, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		d2Observe(s.budget.ctx, "native-directory-stat", time.Now(), err)
 		return nil, refuse("metadata directory")
 	}
 	if before.Mode&unix.S_IFMT != unix.S_IFDIR || (owned && before.Uid != uint32(os.Geteuid())) {
@@ -122,6 +123,7 @@ func (s *metadataSource) openDir(parent *os.File, name string, owned bool) (*os.
 	}
 	n, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 	if err != nil {
+		d2Observe(s.budget.ctx, "native-directory-open", time.Now(), err)
 		return nil, refuse("metadata directory")
 	}
 	f := os.NewFile(uintptr(n), name)
@@ -360,6 +362,7 @@ func (s *metadataSource) discover(selected string) (string, *os.File, error) {
 }
 
 func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *metadataBudget) (_ *metadataView, resultErr error) {
+	d2Start, d2Stage := time.Now(), "discover"
 	v := &metadataView{runner: r, budget: b, source: &metadataSource{budget: b}}
 	defer func() {
 		if resultErr != nil {
@@ -379,6 +382,7 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 				}
 			}
 		}
+		d2Observe(ctx, "prepare-final/"+d2Stage, d2Start, resultErr)
 	}()
 	root, gd, err := v.source.discover(selected)
 	if err != nil {
@@ -392,6 +396,7 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 	if e != nil || resolved != r.gitPath {
 		return nil, refuse("repository executable namespace")
 	}
+	d2Stage = "layout"
 	top, err := v.source.names(gd)
 	if err != nil {
 		return nil, err
@@ -423,6 +428,7 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 		}
 	}
 	// A fixed /tmp allocation avoids a caller TMPDIR inside the repository.
+	d2Stage = "allocation"
 	allocation, err := os.MkdirTemp("/tmp", "hammerhead-git-")
 	if err != nil {
 		return nil, refuse("private allocation")
@@ -454,12 +460,14 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 	if _, err := v.source.copyFile(gd, "config", filepath.Join(v.dir, "input.config"), 1<<20, false); err != nil {
 		return nil, err
 	}
+	d2Stage = "config-parse"
 	parseCtx, cancel := context.WithDeadline(ctx, b.deadline)
 	defer cancel()
 	out, err := r.runControlled(parseCtx, v, v.dir, "config", "--null", "--list", "--no-includes", "--file", filepath.Join(v.dir, "input.config"))
 	if err != nil {
 		return nil, preparationError(ctx, err)
 	}
+	d2Stage = "config-project"
 	config, err := projectConfig(out)
 	if err != nil {
 		return nil, err
@@ -467,9 +475,12 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 	if err := os.WriteFile(filepath.Join(v.dir, "config"), []byte(config), 0600); err != nil {
 		return nil, refuse("generated configuration")
 	}
+	d2Stage = "ambient"
 	if err := v.admitAmbient(parseCtx); err != nil {
+		d2Observe(parseCtx, "ambient-result", d2Start, err)
 		return nil, preparationError(ctx, err)
 	}
+	d2Stage = "index-and-refs-copy"
 	metaStart := b.bytes
 	for _, n := range []string{"index", "packed-refs"} {
 		if present[n] {
@@ -526,6 +537,7 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 			}
 		}
 	}
+	d2Stage = "objects-copy"
 	objects, e := v.source.openDir(gd, "objects", true)
 	if e != nil {
 		return nil, e
@@ -538,10 +550,12 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 			return nil, e
 		}
 	}
+	d2Stage = "whole-index"
 	out, err = r.runControlled(parseCtx, v, v.root, "ls-files", "--stage", "--sparse", "-v", "-z")
 	if err != nil {
 		return nil, preparationError(ctx, err)
 	}
+	d2Stage = "index-listing-admit"
 	if err := admitIndexListing(out); err != nil {
 		return nil, err
 	}
@@ -551,6 +565,7 @@ func prepareMetadata(ctx context.Context, selected string, r *GitRunner, b *meta
 	if err := v.verify(); err != nil {
 		return nil, err
 	}
+	d2Stage = "admitted"
 	v.admitted = true
 	v.evaluationDeadline = time.Now().Add(evaluationDuration)
 	return v, nil
@@ -832,7 +847,9 @@ func (v *metadataView) admitAmbient(ctx context.Context) error {
 		}
 	}
 	for _, path := range paths {
+		d2AmbientStart := time.Now()
 		if err := v.source.absentAmbient(path); err != nil {
+			d2Observe(ctx, "ambient-filesystem", d2AmbientStart, err)
 			return err
 		}
 	}
@@ -865,6 +882,7 @@ func (s *metadataSource) absentAmbientResolved(path string, links int) error {
 			// post-evaluation check detects additions, including first components.
 			info, e := f.Stat()
 			if e != nil {
+				d2Observe(s.budget.ctx, "ambient-parent-stat", time.Now(), e)
 				return refuse("ambient absence")
 			}
 			s.observed = append(s.observed, metadataObservation{parent: f, name: ".", info: info})
@@ -874,6 +892,7 @@ func (s *metadataSource) absentAmbientResolved(path string, links int) error {
 			buf := make([]byte, 4096)
 			nread, e := unix.Readlinkat(int(f.Fd()), n, buf)
 			if e != nil || nread == len(buf) {
+				d2Observe(s.budget.ctx, "ambient-readlink", time.Now(), e)
 				return refuse("ambient symlink uncertainty")
 			}
 			link := st
@@ -885,6 +904,7 @@ func (s *metadataSource) absentAmbientResolved(path string, links int) error {
 			return s.absentAmbientResolved(filepath.Join(append([]string{target}, parts[i+1:]...)...), links+1)
 		}
 		if e != nil || i == len(parts)-1 || st.Mode&unix.S_IFMT != unix.S_IFDIR {
+			d2Observe(s.budget.ctx, "ambient-component-stat-or-presence", time.Now(), e)
 			return refuse("ambient policy present or uncertain")
 		}
 		f, err = s.openDir(f, n, false)
