@@ -1,32 +1,13 @@
-.PHONY: build test lint vet fmt clean check
-
-BINARY := hammerhead
-VERSION ?= 0.2.0-dev
-COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-LDFLAGS := -ldflags "-X github.com/talarurus/hammerhead/internal/cli.Version=$(VERSION) -X github.com/talarurus/hammerhead/internal/cli.Commit=$(COMMIT)"
-
+.PHONY: build test vet check clean
+BINARY := dist/hammerhead-core
+# Native platform only. Release qualification does not follow from cross-compilation.
 build:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/hammerhead
-
+	mkdir -p dist
+	CGO_ENABLED=0 go build -trimpath -o $(BINARY) ./cmd/hammerhead-core
 test:
 	go test -race -count=1 ./...
-
 vet:
 	go vet ./...
-
-fmt:
-	gofmt -l -w .
-
-lint:
-	golangci-lint run ./...
-
+check: vet test
 clean:
 	rm -f $(BINARY)
-	rm -f coverage.out coverage.html
-
-coverage:
-	go test -race -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-
-# Run all quality checks
-check: fmt vet test

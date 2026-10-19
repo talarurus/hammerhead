@@ -3,7 +3,6 @@ package engine_test
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -136,9 +135,6 @@ func TestEngine_MaxFileSizeConflation(t *testing.T) {
 	// Append a deterministic private key header
 	_, _ = f.WriteString("\n" + "-----" + "BEGIN OPENSSH PRIVATE KEY-----\n")
 	f.Close()
-
-	// Initialize git to prevent any git fallback errors
-	_ = exec.Command("git", "init", tempDir).Run()
 
 	registry := engine.DefaultRegistry()
 	eng := engine.New(registry)

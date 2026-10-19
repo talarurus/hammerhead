@@ -72,7 +72,7 @@ func TestTerminalReporter_WithFindings(t *testing.T) {
 
 	// Assertions on terminal output structure
 	expectedSnippets := []string{
-		"HAMMERHEAD SECURITY AUDIT",
+		"HAMMERHEAD CORE AUDIT",
 		"Repository:  repo",
 		"Checks run:  1",
 		"HIGH",
@@ -149,8 +149,8 @@ func TestEngineToJSON_PartialTraversal(t *testing.T) {
 		t.Fatalf("failed to unmarshal JSON: %v", err)
 	}
 
-	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	if parsed.Schema != "hammerhead-core/v0.2" {
+		t.Errorf("expected schema hammerhead-core/v0.2, got %q", parsed.Schema)
 	}
 	if parsed.Status != "partial" {
 		t.Errorf("expected status partial, got %q", parsed.Status)
@@ -239,8 +239,8 @@ func TestJSONReporter_ValidOutput(t *testing.T) {
 		t.Fatalf("JSON output invalid: %v\nOutput was: %s", err, buf.String())
 	}
 
-	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	if parsed.Schema != "hammerhead-core/v0.2" {
+		t.Errorf("expected schema hammerhead-core/v0.2, got %q", parsed.Schema)
 	}
 	if len(parsed.Findings) != 2 {
 		t.Errorf("expected 2 findings in JSON, got %d", len(parsed.Findings))
@@ -294,7 +294,7 @@ func TestTerminalReporter_QuietMode(t *testing.T) {
 
 	out := buf.String()
 	// Must NOT contain verbose headers or descriptions
-	if strings.Contains(out, "HAMMERHEAD SECURITY AUDIT") {
+	if strings.Contains(out, "HAMMERHEAD CORE AUDIT") {
 		t.Errorf("quiet mode should not contain banner")
 	}
 	if strings.Contains(out, "Why it matters:") {
@@ -338,8 +338,8 @@ func TestTerminalReporter_HygieneOnly(t *testing.T) {
 
 	out := buf.String()
 	// Security risk must explicitly be NONE
-	if !strings.Contains(out, "Security risk:          NONE") {
-		t.Errorf("expected 'Security risk:          NONE' for hygiene-only findings, got:\n%s", out)
+	if !strings.Contains(out, "Observed Core severity: NONE") {
+		t.Errorf("expected 'Observed Core severity: NONE' for hygiene-only findings, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Security findings:      0") {
 		t.Errorf("expected 'Security findings:      0', got:\n%s", out)
@@ -449,8 +449,8 @@ func TestJSON_PartialCoverage(t *testing.T) {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 
-	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	if parsed.Schema != "hammerhead-core/v0.2" {
+		t.Errorf("expected schema hammerhead-core/v0.2, got %q", parsed.Schema)
 	}
 	if parsed.Status != "partial" {
 		t.Errorf("expected status partial, got %q", parsed.Status)
@@ -487,7 +487,7 @@ func TestTerminal_ZeroFindingsWithFailure(t *testing.T) {
 	}
 
 	out := buf.String()
-	if !strings.Contains(out, "Security risk:          UNKNOWN") {
+	if !strings.Contains(out, "Observed Core severity: UNKNOWN") {
 		t.Errorf("expected UNKNOWN security risk, got:\n%s", out)
 	}
 	if !strings.Contains(out, "⚠ Scan partial with no findings") {

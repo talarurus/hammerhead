@@ -74,7 +74,7 @@ func decodeC15(t *testing.T, out *bytes.Buffer) c15Report {
 		t.Fatal(err)
 	}
 	var extra any
-	if err := d.Decode(&extra); err != io.EOF || report.Schema != "hammerhead/v0.2" {
+	if err := d.Decode(&extra); err != io.EOF || report.Schema != "hammerhead-core/v0.2" {
 		t.Fatalf("mixed/incomplete JSON: %v %+v", err, report)
 	}
 	return report

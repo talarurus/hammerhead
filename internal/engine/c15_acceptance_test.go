@@ -97,7 +97,7 @@ func TestAcceptance_EffectivePolicyTelemetry(t *testing.T) {
 	for key, want := range map[string]int64{
 		"max_depth": 50, "max_retained_inventory_entries": 100000, "directory_batch_entries": 256, "max_names_per_directory": 10000, "max_examined_entries": 100000,
 		"max_native_read_bytes": 10485760, "sec001_max_eligible_bytes": 5242880, "max_aggregate_native_read_bytes": 268435456, "max_findings_retained": 10000,
-		"git_command_timeout_ms": 10000, "max_git_stdout_bytes": 4194304, "max_git_stderr_bytes": 65536, "git_termination_grace_ms": 1000, "git_wait_cleanup_ms": 1000, "symlink_resolution_steps": 40,
+		"symlink_resolution_steps": 40,
 	} {
 		if got := r.Coverage.Policy.EffectiveLimits[key]; got != want {
 			t.Errorf("policy %s=%d want %d", key, got, want)
@@ -134,7 +134,7 @@ func TestAcceptance_UnstartedCoverageIsMeasuredZeroWork(t *testing.T) {
 		if r.Coverage.Traversal.ExaminedEntries == nil || *r.Coverage.Traversal.ExaminedEntries != 0 || r.Coverage.Traversal.InventoryComplete == nil || *r.Coverage.Traversal.InventoryComplete {
 			t.Fatal("unstarted work fabricated completeness or unknown counters")
 		}
-		if len(r.Coverage.Checks) != 7 {
+		if len(r.Coverage.Checks) != 6 {
 			t.Fatalf("lost unstarted check accounting: %+v", r.Coverage)
 		}
 		for _, c := range r.Coverage.Checks {

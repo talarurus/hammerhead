@@ -7,12 +7,10 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
-	"strings"
 
 	"github.com/talarurus/hammerhead/internal/check"
 	"github.com/talarurus/hammerhead/internal/finding"
 	"github.com/talarurus/hammerhead/internal/fs"
-	"github.com/talarurus/hammerhead/internal/git"
 	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
@@ -231,39 +229,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 		}
 	}
 
-	// Collect Git once, after native root establishment, through an admitted
-	// private metadata capability. Native checks remain independent.
-	var pendingGitDiag *scanstate.Diagnostic
-	gitInfo, gitErr := collectRootGit(ctx, walker.Root(), root)
-	if gitErr != nil {
-		code := scanstate.ReasonGitFailure
-		message := "Git metadata collection failed; native checks remain available"
-		if errors.Is(gitErr, git.ErrUnsafeGitMetadata) {
-			message = "Git evaluation refused because metadata safety could not be established; native checks remain available"
-		}
-		if ctx.Err() != nil {
-			upgradeStatus(scanstate.StatusCancelled)
-			code = scanstate.ReasonUserCancelled
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				code = scanstate.ReasonDeadlineExceeded
-			}
-			message = "Scan cancelled during Git metadata collection"
-		} else {
-			upgradeStatus(scanstate.StatusPartial)
-			if errors.Is(gitErr, git.ErrGitTimeout) {
-				code = scanstate.ReasonGitTimeout
-			}
-		}
-		pendingGitDiag = &scanstate.Diagnostic{
-			Stage: "git", RuleID: "GIT-002", Code: code, SafeMessage: message,
-		}
-	} else if gitInfo.Availability == scanstate.GitUnavailable {
-		pendingGitDiag = &scanstate.Diagnostic{
-			Stage: "git", RuleID: "GIT-002", Code: scanstate.ReasonGitUnavailable,
-			SafeMessage: "Git executable unavailable; Git health was not evaluated",
-		}
-	}
-
 	// Step 3: Initialize collector
 	// Combine sample budgets: reduce Collector's allowed samples by those already used
 	collectorLimits := limits
@@ -275,9 +240,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	collector := scanstate.NewCollector(collectorLimits)
 	if pendingTraversalDiag != nil {
 		collector.AddDiagnostic(*pendingTraversalDiag)
-	}
-	if pendingGitDiag != nil {
-		collector.AddDiagnostic(*pendingGitDiag)
 	}
 
 	aggReadBytes := int64(0)
@@ -303,7 +265,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	sc := &check.ScanContext{
 		RepoRoot:  walker.Root(),
 		Files:     toCheckFiles(walkedFiles),
-		Git:       &gitInfo,
 		Inventory: &inv,
 		ReadFile: func(relPath string, maxSize int64) fs.ReadOutcome {
 			if guardedReader == nil {
@@ -456,11 +417,7 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 					break
 				}
 			}
-			if c.Meta().ID == "GIT-002" && !collector.Exhausted() {
-				// Git health coverage follows the snapshot; filesystem traversal
-				// cannot fabricate availability or applicability of Git work.
-				chkCov.Status = gitInfo.Status
-			} else if walkErr != nil || collector.Exhausted() || hasFailureReason {
+			if walkErr != nil || collector.Exhausted() || hasFailureReason {
 				upgradeStatus(scanstate.StatusPartial)
 				chkCov.Status = scanstate.CheckStatusPartial
 			} else {
@@ -581,40 +538,6 @@ func (e *Engine) Scan(ctx context.Context, targetDir string, config *ScanConfig)
 	}
 
 	return result, finalErr
-}
-
-// Git's pathname authority is observed for the entire collection interval.
-// Any lost/changed binding or observation failure discards all Git facts, even
-// a non-repository result. Native descriptors continue to refer to the original
-// object. This does not freeze file contents, Git metadata or external worktrees.
-func collectRootGit(ctx context.Context, path string, root *fs.RootHandle) (snapshot scanstate.GitSnapshot, resultErr error) {
-	unknown := scanstate.GitSnapshot{Availability: scanstate.GitAvailabilityUnknown, Applicability: scanstate.GitApplicabilityUnknown, Status: scanstate.CheckStatusPartial, BranchState: scanstate.GitBranchUnknown}
-	if err := ctx.Err(); err != nil {
-		return unknown, err
-	}
-	// Refuse excessive discovery depth before R1 allocates ancestor watches.
-	// This path can yield only refusal/unavailable, never repository facts.
-	if strings.Count(filepath.Clean(path), string(filepath.Separator))+1 > git.MaxDetectionAncestorSteps {
-		return git.CollectSnapshot(ctx, path)
-	}
-	guard, err := root.GuardPath()
-	if err != nil {
-		return unknown, fmt.Errorf("Git root binding could not be established")
-	}
-	defer func() {
-		if err := guard.Close(); err != nil {
-			snapshot = unknown
-			resultErr = errors.Join(resultErr, fmt.Errorf("closing Git root observer: %w", err))
-		}
-	}()
-	if err := guard.Check(); err != nil {
-		return unknown, fmt.Errorf("Git root binding changed")
-	}
-	snapshot, gitErr := git.CollectSnapshot(ctx, path)
-	if err := guard.Check(); err != nil {
-		return unknown, errors.Join(gitErr, fmt.Errorf("Git root binding changed during collection"))
-	}
-	return snapshot, gitErr
 }
 
 // toCheckFiles converts walker output to the check package's FileInfo type.

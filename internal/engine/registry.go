@@ -55,7 +55,7 @@ func (r *Registry) Count() int {
 	return len(r.checks)
 }
 
-// DefaultRegistry assembles the standard set of V0.1 checks.
+// DefaultRegistry assembles the six native Hammerhead Core checks.
 // This is the single, explicit place where all checks are registered.
 //
 // To add a new check:
@@ -70,9 +70,8 @@ func DefaultRegistry() *Registry {
 	mustAdd(r, &check.SensitiveFileCheck{})
 	mustAdd(r, &check.LargeFileCheck{})
 
-	// Git checks
+	// Textual root .gitignore hygiene; no Git metadata collection.
 	mustAdd(r, &check.GitignoreCheck{})
-	mustAdd(r, &check.GitHealthCheck{})
 
 	// Project checks
 	mustAdd(r, &check.RepoHygieneCheck{})

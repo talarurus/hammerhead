@@ -1,69 +1,27 @@
 package check_test
 
 import (
-	"context"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/talarurus/hammerhead/internal/check"
 	"github.com/talarurus/hammerhead/internal/engine"
 	"github.com/talarurus/hammerhead/internal/finding"
 	"github.com/talarurus/hammerhead/internal/fs"
-	"github.com/talarurus/hammerhead/internal/git"
 )
-
-func createGitRepo(t *testing.T, makeDirty bool, detachHead bool) *check.ScanContext {
-	t.Helper()
-	dir := t.TempDir()
-
-	runGit := func(args ...string) {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if err := cmd.Run(); err != nil {
-			t.Fatalf("git %v failed: %v", args, err)
-		}
-	}
-
-	runGit("init")
-	runGit("config", "user.email", "test@example.com")
-	runGit("config", "user.name", "Test User")
-
-	if detachHead || !makeDirty {
-		os.WriteFile(filepath.Join(dir, "README.md"), []byte("init"), 0644)
-		runGit("add", "README.md")
-		runGit("commit", "-m", "init")
-	}
-
-	if makeDirty {
-		os.WriteFile(filepath.Join(dir, "dirty.txt"), []byte("dirty"), 0644)
-	}
-
-	if detachHead {
-		runGit("checkout", "--detach")
-	}
-
-	snapshot, err := git.CollectSnapshot(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &check.ScanContext{RepoRoot: dir, Git: &snapshot}
-}
 
 func TestDefaultRegistry_RuleInventory(t *testing.T) {
 	registry := engine.DefaultRegistry()
 	checks := registry.All()
 
-	if len(checks) != 7 {
-		t.Fatalf("Expected exactly 7 registered checks, got %d", len(checks))
+	if len(checks) != 6 {
+		t.Fatalf("Expected exactly 6 registered checks, got %d", len(checks))
 	}
 
 	expectedIDs := map[string]bool{
 		"FILE-001": true,
 		"FILE-002": true,
 		"GIT-001":  true,
-		"GIT-002":  true,
 		"PROJ-001": true,
 		"PROJ-002": true,
 		"SEC-001":  true,
@@ -83,7 +41,7 @@ func TestDefaultRegistry_RuleInventory(t *testing.T) {
 }
 
 // TestCurrentRuleVariants uses synthetic ScanContext inputs to prove that
-// every current detection path maps precisely to one of the 35 frozen variants.
+// every current detection path maps precisely to one of the included native rule variants.
 func TestCurrentRuleVariants(t *testing.T) {
 	tests := []struct {
 		variantKey string
@@ -223,24 +181,6 @@ func TestCurrentRuleVariants(t *testing.T) {
 				return sc
 			},
 			verify: verifyFinding("GIT-001", "Supported textual ignore pattern not found: Private keys", finding.SeverityLow),
-		},
-
-		// === GIT-002 ===
-		{
-			variantKey: "dirty-worktree",
-			checkFunc:  func() check.Check { return &check.GitHealthCheck{} },
-			setupSC: func(t *testing.T) *check.ScanContext {
-				return createGitRepo(t, true, false)
-			},
-			verify: verifyFinding("GIT-002", "Uncommitted changes in repository worktree", finding.SeverityInfo),
-		},
-		{
-			variantKey: "detached-head",
-			checkFunc:  func() check.Check { return &check.GitHealthCheck{} },
-			setupSC: func(t *testing.T) *check.ScanContext {
-				return createGitRepo(t, false, true)
-			},
-			verify: verifyFinding("GIT-002", "Repository in detached HEAD state", finding.SeverityInfo),
 		},
 
 		// === PROJ-001 ===

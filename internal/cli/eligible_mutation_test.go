@@ -64,7 +64,26 @@ func a2r2SchedulingHooks() *readerHooks {
 	if err := os.WriteFile(replacement, []byte(instrumented), 0600); err != nil {
 		t.Fatal(err)
 	}
-	overlay, err := json.Marshal(map[string]any{"Replace": map[string]string{path: replacement}})
+	// Test-only observer proves real command signal wiring before releasing a read.
+	mainPath := filepath.Join(root, "cmd/hammerhead-core/main.go")
+	mainSource, err := os.ReadFile(mainPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mainAnchor := "\tcode := cli.Run(ctx,"
+	if strings.Count(string(mainSource), mainAnchor) != 1 {
+		t.Fatal("command cancellation anchor changed")
+	}
+	mainInstrumented := strings.Replace(string(mainSource), mainAnchor, `
+ if p := os.Getenv("A2R2_CANCELLED"); p != "" {
+  context.AfterFunc(ctx, func() { if err := os.WriteFile(p, []byte("cancelled\n"), 0600); err != nil { panic(err) } })
+ }
+`+mainAnchor, 1)
+	mainReplacement := filepath.Join(tmp, "main.go")
+	if err := os.WriteFile(mainReplacement, []byte(mainInstrumented), 0600); err != nil {
+		t.Fatal(err)
+	}
+	overlay, err := json.Marshal(map[string]any{"Replace": map[string]string{path: replacement, mainPath: mainReplacement}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +94,7 @@ func a2r2SchedulingHooks() *readerHooks {
 	binary := filepath.Join(tmp, "hammerhead")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-overlay", overlayPath, "-o", binary, "./cmd/hammerhead")
+	cmd := exec.CommandContext(ctx, "go", "build", "-overlay", overlayPath, "-o", binary, "./cmd/hammerhead-core")
 	cmd.Dir = root
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("instrumented CLI build: %v: %s", err, out)

@@ -9,6 +9,7 @@ import (
 
 	"github.com/talarurus/hammerhead/internal/engine"
 	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/product"
 	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
@@ -25,12 +26,14 @@ func NewJSON() *JSON {
 	return &JSON{
 		Writer:     os.Stdout,
 		Pretty:     true,
-		AppVersion: "0.2.0-dev",
+		AppVersion: product.Version,
 		FailOn:     finding.SeverityHigh,
 	}
 }
 
 type jsonReport struct {
+	Product     string                 `json:"product"`
+	Scope       product.Scope          `json:"scope"`
 	Schema      string                 `json:"schema"`
 	Status      scanstate.Status       `json:"status"`
 	Threshold   jsonThreshold          `json:"threshold"`
@@ -74,7 +77,7 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 
 	ver := j.AppVersion
 	if ver == "" {
-		ver = "0.2.0-dev"
+		ver = product.Version
 	}
 
 	failOnStr := "none"
@@ -102,8 +105,10 @@ func (j *JSON) Report(result *engine.ScanResult) error {
 	}
 
 	report := jsonReport{
-		Schema: "hammerhead/v0.2",
-		Status: result.Status,
+		Product: product.Name,
+		Scope:   product.CoreScope(),
+		Schema:  product.Schema,
+		Status:  result.Status,
 		Threshold: jsonThreshold{
 			FailOn:   failOnStr,
 			Exceeded: exceeded,

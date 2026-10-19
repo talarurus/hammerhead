@@ -20,7 +20,6 @@ func TestChecks_CancelDuringLoop(t *testing.T) {
 		chk  check.Check
 	}{
 		{"GitignoreCheck", &check.GitignoreCheck{}},
-		{"GitHealthCheck", &check.GitHealthCheck{}},
 		{"LargeFileCheck", &check.LargeFileCheck{}},
 		{"ProjectDetectCheck", &check.ProjectDetectCheck{}},
 		{"RepoHygieneCheck", &check.RepoHygieneCheck{}},

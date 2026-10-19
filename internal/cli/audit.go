@@ -41,8 +41,11 @@ func newAuditCmd(stdout, stderr io.Writer, audit auditFunc) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "audit [path]",
-		Short: "Run security checks against a repository",
-		Long: `Audit inspects the target directory for security risks including
+		Short: "Run the six Hammerhead Core native checks",
+		Long: `Hammerhead Core only. GIT-002: NOT EVALUATED. No Git or repository helpers execute.
+GIT-001 only checks supported text patterns in the root .gitignore.
+
+Audit inspects the target directory for security risks including
 sensitive files, credential exposure, and repository hygiene issues.
 
 Completed scans exit 1 when a Security finding meets --fail-on (high by default).

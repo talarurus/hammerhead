@@ -1,5 +1,5 @@
 {
-  "schema": "hammerhead/v0.2",
+  "schema": "hammerhead-core/v0.2",
   "status": "completed",
   "threshold": {
     "fail_on": "high",
@@ -8,18 +8,21 @@
   "repository": {
     "root": "/src/example"
   },
-  "version": "v0.2.0-dev",
+  "version": "0.2.0-core.1",
   "timestamp": "2026-10-05T12:00:00Z",
   "summary": {
     "findings_count": 0,
     "class_counts": {},
     "highest_security_severity": "",
-    "checks_attempted": 1
+    "checks_attempted": 6
   },
   "findings": [],
   "coverage": {
     "policy": {
-      "exclusions": [".git", "node_modules"],
+      "exclusions": [
+        ".git",
+        "node_modules"
+      ],
       "effective_limits": {
         "max_depth": 50,
         "max_retained_inventory_entries": 100000,
@@ -40,12 +43,7 @@
         "max_description_bytes": 8192,
         "max_remediation_bytes": 8192,
         "overall_scan_timeout_ms": 300000,
-        "git_command_timeout_ms": 10000,
-        "max_git_stdout_bytes": 4194304,
-        "max_git_stderr_bytes": 65536,
-        "git_termination_grace_ms": 1000,
-        "git_cleanup_allowance_ms": 1000,
-        "max_symlink_resolution_steps": 40
+        "symlink_resolution_steps": 40
       }
     },
     "traversal": {
@@ -58,8 +56,53 @@
     "reasons": [],
     "checks": [
       {
+        "rule_id": "FILE-001",
+        "status": "completed",
+        "eligible_files": 0,
+        "inspected_files": 0,
+        "read_bytes": 0,
+        "reason_counts": [],
+        "check_ver": "0.2.0"
+      },
+      {
+        "rule_id": "FILE-002",
+        "status": "completed",
+        "eligible_files": 0,
+        "inspected_files": 0,
+        "read_bytes": 0,
+        "reason_counts": [],
+        "check_ver": "0.2.0"
+      },
+      {
+        "rule_id": "GIT-001",
+        "status": "completed",
+        "eligible_files": 0,
+        "inspected_files": 0,
+        "read_bytes": 0,
+        "reason_counts": [],
+        "check_ver": "0.2.0"
+      },
+      {
+        "rule_id": "PROJ-001",
+        "status": "completed",
+        "eligible_files": 0,
+        "inspected_files": 0,
+        "read_bytes": 0,
+        "reason_counts": [],
+        "check_ver": "0.2.0"
+      },
+      {
+        "rule_id": "PROJ-002",
+        "status": "completed",
+        "eligible_files": 0,
+        "inspected_files": 0,
+        "read_bytes": 0,
+        "reason_counts": [],
+        "check_ver": "0.1.0"
+      },
+      {
         "rule_id": "SEC-001",
-        "check_ver": "0.1.0",
+        "check_ver": "0.2.0",
         "status": "completed",
         "eligible_files": 90,
         "inspected_files": 90,
@@ -71,5 +114,24 @@
     "findings_truncated": false,
     "diagnostic_examples_omitted": 0
   },
-  "diagnostics": []
+  "diagnostics": [],
+  "product": "Hammerhead Core",
+  "scope": {
+    "included_rules": [
+      "FILE-001",
+      "FILE-002",
+      "GIT-001",
+      "PROJ-001",
+      "PROJ-002",
+      "SEC-001"
+    ],
+    "not_evaluated": [
+      {
+        "rule_id": "GIT-002",
+        "status": "not_evaluated",
+        "reason": "Git health and native Git metadata collection are excluded from Hammerhead Core"
+      }
+    ],
+    "completion_meaning": "A completed status means all six Core checks completed under the reported filesystem exclusions and limits; no claim of complete repository security"
+  }
 }

@@ -10,9 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"syscall"
 	"testing"
 	"time"
 	"unicode"
@@ -47,7 +44,7 @@ func integratedJSON(t *testing.T, out []byte) integratedReport {
 		t.Fatalf("not a JSON document: %v %q", err, out)
 	}
 	var extra any
-	if err := d.Decode(&extra); err != io.EOF || r.Schema != "hammerhead/v0.2" {
+	if err := d.Decode(&extra); err != io.EOF || r.Schema != "hammerhead-core/v0.2" {
 		t.Fatalf("mixed JSON output: %v %+v", err, r)
 	}
 	return r
@@ -194,129 +191,9 @@ func TestCLI_ActualTerminalInjection(t *testing.T) {
 	}
 }
 
-// Trusted synthetic Git executable: the real CLI and production runner invoke
-// this test binary outside the target. No shell, credentials or live Git hook.
-func runC15GitHelper() {
-	args := strings.Join(os.Args[1:], " ")
-	if strings.Contains(args, "config --null --list --no-includes --file ") {
-		os.Stdout.WriteString("core.repositoryformatversion\n0\x00")
-		return
-	}
-	if strings.HasSuffix(args, "var GIT_ATTR_SYSTEM") {
-		os.Stdout.WriteString("/etc/gitattributes\n")
-		return
-	}
-	if strings.HasSuffix(args, "ls-files --stage --sparse -v -z") {
-		return
-	}
-	data, err := os.ReadFile(".g12-mode")
-	if err != nil {
-		os.Exit(89)
-	}
-	lock, err := os.Create(".g12-lock")
-	if err != nil || syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) != nil {
-		os.Exit(86)
-	}
-	defer lock.Close()
-	if err := os.WriteFile(".g12-pid", []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
-		os.Exit(88)
-	}
-	if string(data) == "failure" {
-		os.Stderr.WriteString("SYNTHETIC_RAW_GIT_STDERR\x1b]52;c;PAYLOAD\a\n")
-		os.Exit(1)
-	}
-	time.AfterFunc(15*time.Second, func() { os.Exit(87) })
-	select {} // Production per-command timeout must terminate this owned helper.
-}
-
-func TestCLI_GitTimeoutRetainsNativeFindings(t *testing.T) {
-	for _, mode := range []string{"timeout", "failure"} {
-		t.Run(mode, func(t *testing.T) {
-			root := g11EmptyRepo(t)
-			for _, n := range []string{"refs", "objects"} {
-				if err := os.MkdirAll(filepath.Join(root, ".git", n), 0700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			for n, data := range map[string]string{"HEAD": "ref: refs/heads/main\n", "config": "[core]\nrepositoryformatversion=0\n"} {
-				if err := os.WriteFile(filepath.Join(root, ".git", n), []byte(data), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			home := t.TempDir()
-			t.Setenv("HOME", home)
-			t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "xdg"))
-			for name, data := range map[string]string{"id_rsa": "synthetic filename fixture", ".g12-mode": mode} {
-				if err := os.WriteFile(filepath.Join(root, name), []byte(data), 0600); err != nil {
-					t.Fatal(err)
-				}
-			}
-			bin := t.TempDir()
-			t.Cleanup(func() {
-				lock, err := os.Open(filepath.Join(root, ".g12-lock"))
-				if err != nil {
-					return
-				}
-				defer lock.Close()
-				if syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
-					syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-					return
-				}
-				data, _ := os.ReadFile(filepath.Join(root, ".g12-pid"))
-				pid, _ := strconv.Atoi(string(data))
-				if group, err := syscall.Getpgid(pid); err == nil && pid > 0 && group == pid && group != syscall.Getpgrp() {
-					syscall.Kill(-group, syscall.SIGKILL)
-				}
-			})
-			exe, err := os.Executable()
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.Symlink(exe, filepath.Join(bin, "git")); err != nil {
-				t.Fatal(err)
-			}
-			out, diag, code := integratedRun(t, 15*time.Second, bin, "audit", root, "--output", "json", "--fail-on", "none")
-			if code != 2 || bytes.Contains(diag, []byte("SYNTHETIC_RAW")) || bytes.Contains(out, []byte("SYNTHETIC_RAW")) {
-				t.Fatalf("unsafe Git failure: code=%d stderr=%q", code, diag)
-			}
-			r := integratedJSON(t, out)
-			if r.Status != scanstate.StatusPartial || r.Threshold.FailOn != "none" || r.Threshold.Exceeded {
-				t.Fatalf("Git failure misclassified: %+v", r)
-			}
-			found := false
-			for _, f := range r.Findings {
-				found = found || f.RuleID == "FILE-001" && f.Path == "id_rsa"
-			}
-			want := scanstate.ReasonGitTimeout
-			if mode == "failure" {
-				want = scanstate.ReasonGitFailure
-			}
-			reason := false
-			for _, d := range r.Diagnostics {
-				reason = reason || d.Code == want
-			}
-			if !found || !reason {
-				t.Fatalf("native finding or typed Git reason lost: %+v", r)
-			}
-			pidData, err := os.ReadFile(filepath.Join(root, ".g12-pid"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(pidData)))
-			if err != nil || pid <= 0 {
-				t.Fatal("invalid helper PID")
-			}
-			if err := syscall.Kill(pid, 0); !errors.Is(err, syscall.ESRCH) {
-				// Cleanup verifies the live fixture lock/group before signalling.
-				t.Fatalf("owned Git helper still exists after CLI return: %v", err)
-			}
-		})
-	}
-}
-
 func TestCLI_DevelopmentVersion(t *testing.T) {
 	out, _, code := integratedRun(t, 3*time.Second, t.TempDir(), "version")
-	if code != 0 || !bytes.Contains(out, []byte("0.2.0-dev")) {
+	if code != 0 || !bytes.Contains(out, []byte("0.2.0-core.1")) {
 		t.Fatalf("development version: code=%d %s", code, out)
 	}
 }

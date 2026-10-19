@@ -43,9 +43,6 @@ type FileInfo struct {
 	IsDir   bool        // True if this is a directory
 }
 
-// GitInfo is the engine-collected, authority-free Git snapshot.
-type GitInfo = scanstate.GitSnapshot
-
 // ScanContext provides checks with safe, pre-validated access to repository data.
 //
 // The engine constructs this before check execution. Checks must use the
@@ -61,9 +58,6 @@ type ScanContext struct {
 	// classification are determined by the guarded ReadFile outcome; FileInfo
 	// does not carry a binary-content flag.
 	Files []FileInfo
-
-	// Git holds an explicit metadata snapshot, including unavailable/non-applicable states.
-	Git *GitInfo
 
 	// Inventory provides facts discovered during traversal.
 	Inventory *myfs.Inventory

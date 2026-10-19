@@ -217,7 +217,7 @@ func TestLicenseWording_PresenceDoesNotEstablishAdequacy(t *testing.T) {
 }
 
 func TestWording_CheckVersions(t *testing.T) {
-	versions := map[string]string{"FILE-001": "0.2.0", "FILE-002": "0.2.0", "SEC-001": "0.2.0", "GIT-001": "0.2.0", "PROJ-001": "0.2.0", "GIT-002": "0.2.0", "PROJ-002": "0.1.0"}
+	versions := map[string]string{"FILE-001": "0.2.0", "FILE-002": "0.2.0", "SEC-001": "0.2.0", "GIT-001": "0.2.0", "PROJ-001": "0.2.0", "PROJ-002": "0.1.0"}
 	for _, c := range engine.DefaultRegistry().All() {
 		meta := c.Meta()
 		if meta.Version != versions[meta.ID] {

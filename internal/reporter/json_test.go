@@ -70,7 +70,7 @@ func TestJSON_DevelopmentVersion(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &parsed); err != nil {
 			t.Fatal(err)
 		}
-		if parsed.Version != "0.2.0-dev" {
+		if parsed.Version != "0.2.0-core.1" {
 			t.Fatalf("default/fallback version: %q", parsed.Version)
 		}
 	}

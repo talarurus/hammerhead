@@ -9,6 +9,7 @@ import (
 
 	"github.com/talarurus/hammerhead/internal/engine"
 	"github.com/talarurus/hammerhead/internal/finding"
+	"github.com/talarurus/hammerhead/internal/product"
 	"github.com/talarurus/hammerhead/internal/scanstate"
 )
 
@@ -43,7 +44,7 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 
 	// Header
 	t.writeln(w, "")
-	t.writeColored(w, colorBold, "HAMMERHEAD SECURITY AUDIT")
+	t.writeColored(w, colorBold, "HAMMERHEAD CORE AUDIT")
 	t.writeln(w, "")
 
 	// Repository info
@@ -61,7 +62,7 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 
 	if len(result.Findings) == 0 {
 		t.writeln(w, "")
-		fmt.Fprintf(w, "  Security risk:          ")
+		fmt.Fprintf(w, "  Observed Core severity: ")
 
 		if string(result.Status) == "completed" {
 			t.writeColored(w, colorGreen, "NONE")
@@ -89,7 +90,7 @@ func (t *Terminal) Report(result *engine.ScanResult) error {
 	maxSec, hasSec := result.HighestObservedSecuritySeverity()
 
 	t.writeln(w, "")
-	fmt.Fprintf(w, "  Security risk:          ")
+	fmt.Fprintf(w, "  Observed Core severity: ")
 	if hasSec {
 		t.writeColored(w, severityColor(maxSec), maxSec.Label())
 	} else if string(result.Status) == "completed" {
@@ -289,6 +290,7 @@ func (t *Terminal) reportQuiet(w *OutputWriter, result *engine.ScanResult) error
 }
 
 func (t *Terminal) writeOperational(w *OutputWriter, result *engine.ScanResult, quiet bool) {
+	fmt.Fprintln(w, product.Name+": "+product.ScopeNotice)
 	prefix := "  "
 	if quiet {
 		prefix = "[COVERAGE] "

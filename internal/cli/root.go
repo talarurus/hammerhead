@@ -7,12 +7,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/talarurus/hammerhead/internal/app"
+	"github.com/talarurus/hammerhead/internal/product"
 	"github.com/talarurus/hammerhead/internal/reporter"
 )
 
 var (
-	Version = "0.2.0-dev"
-	Commit  = "unknown"
+	Version = product.Version
+	Commit  = product.BaseCommit
 )
 
 // auditFunc defines the signature for the application audit service.
@@ -30,13 +31,9 @@ func runWithAudit(ctx context.Context, args []string, stdout, stderr io.Writer, 
 	out := reporter.NewOutputWriter(stdout)
 	diagnostic := reporter.NewOutputWriter(stderr)
 	rootCmd := &cobra.Command{
-		Use:   "hammerhead",
-		Short: "Developer-security CLI for repository inspection",
-		Long: `Hammerhead inspects software repositories for security risks,
-sensitive files, credential exposure, and hygiene issues.
-
-It produces clear, actionable findings with severity levels,
-explanations, and remediation guidance.`,
+		Use:           "hammerhead-core",
+		Short:         "Hammerhead Core: six native file and project checks",
+		Long:          "Hammerhead Core inspects native files and project hygiene.\n\n" + product.ScopeNotice + "\nNo full seven-rule coverage or complete repository security is claimed.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}

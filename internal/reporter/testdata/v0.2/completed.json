@@ -21,10 +21,29 @@
   },
   "diagnostics": [],
   "findings": [],
+  "product": "Hammerhead Core",
   "repository": {
     "root": "/repo"
   },
-  "schema": "hammerhead/v0.2",
+  "schema": "hammerhead-core/v0.2",
+  "scope": {
+    "completion_meaning": "A completed status means all six Core checks completed under the reported filesystem exclusions and limits; no claim of complete repository security",
+    "included_rules": [
+      "FILE-001",
+      "FILE-002",
+      "GIT-001",
+      "PROJ-001",
+      "PROJ-002",
+      "SEC-001"
+    ],
+    "not_evaluated": [
+      {
+        "reason": "Git health and native Git metadata collection are excluded from Hammerhead Core",
+        "rule_id": "GIT-002",
+        "status": "not_evaluated"
+      }
+    ]
+  },
   "status": "completed",
   "summary": {
     "checks_attempted": 1,
@@ -37,5 +56,5 @@
     "fail_on": "high"
   },
   "timestamp": "2026-10-05T00:00:00Z",
-  "version": "0.2.0-dev"
+  "version": "0.2.0-core.1"
 }

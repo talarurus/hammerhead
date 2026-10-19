@@ -140,19 +140,3 @@ func (*lifecycleFailureCheck) Meta() check.Meta { return check.Meta{ID: "TEST-FA
 func (*lifecycleFailureCheck) Run(context.Context, *check.ScanContext) error {
 	return errors.New("synthetic check failure")
 }
-
-func TestA2R1_GitBindingSetupFailure(t *testing.T) {
-	w, err := fs.NewSafeWalker(t.TempDir(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	root, err := w.OpenRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
-	root.Close()
-	snapshot, err := collectRootGit(context.Background(), w.Root(), root)
-	if err == nil || snapshot.Status != scanstate.CheckStatusPartial || snapshot.Root != "" {
-		t.Fatal(snapshot, err)
-	}
-}

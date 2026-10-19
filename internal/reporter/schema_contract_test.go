@@ -103,8 +103,8 @@ type ContractResult struct {
 func ValidateContract(result ContractResult) []error {
 	var errs []error
 
-	if result.Schema != "hammerhead/v0.2" {
-		errs = append(errs, fmt.Errorf("expected schema 'hammerhead/v0.2', got '%s'", result.Schema))
+	if result.Schema != "hammerhead-core/v0.2" {
+		errs = append(errs, fmt.Errorf("expected schema 'hammerhead-core/v0.2', got '%s'", result.Schema))
 	}
 
 	validStatuses := map[string]bool{
@@ -246,9 +246,7 @@ func ValidateContract(result ContractResult) []error {
 		"max_diagnostic_samples", "max_examples_per_reason", "max_diagnostic_path_bytes",
 		"max_safe_message_bytes", "max_finding_path_bytes", "max_evidence_bytes",
 		"max_title_bytes", "max_description_bytes", "max_remediation_bytes",
-		"overall_scan_timeout_ms", "git_command_timeout_ms", "max_git_stdout_bytes",
-		"max_git_stderr_bytes", "git_termination_grace_ms", "git_cleanup_allowance_ms",
-		"max_symlink_resolution_steps",
+		"overall_scan_timeout_ms", "symlink_resolution_steps",
 	}
 
 	for _, limit := range requiredLimits {
@@ -379,7 +377,7 @@ func TestNegativeContractValidation(t *testing.T) {
 			modifier: func(r *ContractResult) {
 				r.Schema = "hammerhead/v0.1"
 			},
-			expectError: "expected schema 'hammerhead/v0.2', got 'hammerhead/v0.1'",
+			expectError: "expected schema 'hammerhead-core/v0.2', got 'hammerhead/v0.1'",
 		},
 		{
 			name: "invalid status",
@@ -512,7 +510,7 @@ func TestNegativeContractValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := ContractResult{
-				Schema: "hammerhead/v0.2",
+				Schema: "hammerhead-core/v0.2",
 				Status: "completed",
 				Threshold: ContractThreshold{
 					FailOn:   "high",
@@ -546,10 +544,7 @@ func TestNegativeContractValidation(t *testing.T) {
 							"max_safe_message_bytes": 2048, "max_finding_path_bytes": 16384,
 							"max_evidence_bytes": 2048, "max_title_bytes": 8192,
 							"max_description_bytes": 8192, "max_remediation_bytes": 8192,
-							"overall_scan_timeout_ms": 300000, "git_command_timeout_ms": 10000,
-							"max_git_stdout_bytes": 4194304, "max_git_stderr_bytes": 65536,
-							"git_termination_grace_ms": 1000, "git_cleanup_allowance_ms": 1000,
-							"max_symlink_resolution_steps": 40,
+							"overall_scan_timeout_ms": 300000, "symlink_resolution_steps": 40,
 						},
 					},
 				},

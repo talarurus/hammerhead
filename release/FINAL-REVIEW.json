@@ -1,0 +1,54 @@
+{
+  "product": "Hammerhead Core",
+  "version": "0.2.0-core.1",
+  "decision": "READY FOR EXPLICIT UNSIGNED PRERELEASE APPROVAL",
+  "mandatory_blockers": [],
+  "approval": "founder approval pending; nothing published",
+  "source_base_commit": "4fa1018b13ed4b8b6af194a326105e098dc8118f",
+  "binary_sha256": "e84f47227839157c34650d9ccc6f9aa54e70512f33bf96b0854be910f7c06905",
+  "native_acceptance": {
+    "exit_status": 0,
+    "top_level_passed": 225,
+    "failed": 0,
+    "skipped_tests": 0,
+    "filters": null,
+    "race_reported": false,
+    "race_log_sha256": "3862b5cf6932cfc59c72987560509c3112e12aeb19786089269b093c74aa3005",
+    "outcome_sha256": "ed163d69a09ddc0ffcbdf126a42d5745a93449fa7a39354788e948b7ac795c04",
+    "install_demo_log_sha256": "b6f30ac177bedb411ca9c939997d3418748d265c0bdc47c78f20b9640e62d10a",
+    "accepted_source_manifest_sha256": "06f3e7baa0c07ca8e34dbae01b45f6a84461fbdeb192f36ea163dac735a4ce0c",
+    "tested_inputs_sha256": "c3a6b518b7c01389b7617f7ed02b438a958bd5058ca0e4199ba729f0c3a2b16c",
+    "tested_inputs_unchanged": true
+  },
+  "native_qualified_environment": {
+    "os": "macOS 27.0.1",
+    "build": "26A434",
+    "architecture": "arm64",
+    "toolchain": "go1.27.1"
+  },
+  "earlier_macos_minimum_qualified": false,
+  "intel_or_linux_qualified": false,
+  "signing": "linker ad hoc only; no Developer ID; no notarization",
+  "gatekeeper": {
+    "qualified": false,
+    "assessment_exit": 1,
+    "assessment_result": "internal error in Code Signing subsystem",
+    "quarantined_download_launch_qualified": false
+  },
+  "included_rules": [
+    "FILE-001",
+    "FILE-002",
+    "GIT-001",
+    "PROJ-001",
+    "PROJ-002",
+    "SEC-001"
+  ],
+  "not_evaluated": [
+    {
+      "rule_id": "GIT-002",
+      "status": "not_evaluated",
+      "reason": "Advanced Git health and native Git metadata execution are excluded"
+    }
+  ],
+  "limits": "Not full seven-rule coverage, complete repository security or the original full Hammerhead v0.2 release"
+}

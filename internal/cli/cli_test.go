@@ -21,10 +21,6 @@ func runCLITests(m *testing.M) int {
 	if len(os.Args) == 3 && os.Args[1] == "--g12-special-reader" {
 		return runC15SpecialReader(os.Args[2])
 	}
-	if len(os.Args) > 1 && os.Args[1] == "--no-pager" {
-		runC15GitHelper()
-		return 0
-	}
 	tempDir, err := os.MkdirTemp("", "hammerhead-cli-test-*")
 	if err != nil {
 		panic(err)
@@ -33,7 +29,7 @@ func runCLITests(m *testing.M) int {
 
 	bin := filepath.Join(tempDir, "hammerhead")
 	// Compile binary from project root
-	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/hammerhead")
+	cmd := exec.Command("go", "build", "-o", bin, "../../cmd/hammerhead-core")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		panic("failed to build test binary: " + string(out))
@@ -60,7 +56,7 @@ func TestCLI_Version(t *testing.T) {
 	if err != nil {
 		t.Fatalf("version failed: %v (out: %s)", err, string(out))
 	}
-	if !strings.Contains(string(out), "hammerhead version") {
+	if !strings.Contains(string(out), "Hammerhead Core version") {
 		t.Errorf("expected version output, got: %s", string(out))
 	}
 }
@@ -176,8 +172,8 @@ func TestCLI_AuditJSONOutput(t *testing.T) {
 		t.Fatalf("invalid JSON output: %v\nOutput: %s", err, string(out))
 	}
 
-	if parsed.Schema != "hammerhead/v0.2" {
-		t.Errorf("expected schema hammerhead/v0.2, got %q", parsed.Schema)
+	if parsed.Schema != "hammerhead-core/v0.2" {
+		t.Errorf("expected schema hammerhead-core/v0.2, got %q", parsed.Schema)
 	}
 	if parsed.Summary.FindingsCount < 3 {
 		t.Errorf("expected at least 3 findings in dirty repo, got %d", parsed.Summary.FindingsCount)
@@ -413,8 +409,8 @@ func TestCLI_AuditHygieneRepo_FailOnLowExits0(t *testing.T) {
 	if !strings.Contains(outStr, "HYGIENE OBSERVATIONS") {
 		t.Errorf("expected FILE-002 to be classified under HYGIENE OBSERVATIONS, got:\n%s", outStr)
 	}
-	if !strings.Contains(outStr, "Security risk:          NONE") {
-		t.Errorf("expected 'Security risk:          NONE' for hygiene repo, got:\n%s", outStr)
+	if !strings.Contains(outStr, "Observed Core severity: NONE") {
+		t.Errorf("expected 'Observed Core severity: NONE' for hygiene repo, got:\n%s", outStr)
 	}
 	if !strings.Contains(outStr, "Security findings:      0") {
 		t.Errorf("expected 'Security findings:      0', got:\n%s", outStr)
@@ -509,7 +505,7 @@ func TestCLI_AuditQuietFlag(t *testing.T) {
 	}
 
 	outStr := string(out)
-	if strings.Contains(outStr, "HAMMERHEAD SECURITY AUDIT") {
+	if strings.Contains(outStr, "HAMMERHEAD CORE AUDIT") {
 		t.Errorf("quiet output must not contain banner")
 	}
 	if strings.Contains(outStr, "Why it matters:") {

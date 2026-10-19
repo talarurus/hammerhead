@@ -105,7 +105,7 @@ func TestCLI_JSONStreamsSeparated(t *testing.T) {
 				if err := decoder.Decode(&report); err != nil {
 					t.Fatal(err)
 				}
-				if report["schema"] != "hammerhead/v0.2" || report["status"] != string(status) || report["coverage"] == nil {
+				if report["schema"] != "hammerhead-core/v0.2" || report["status"] != string(status) || report["coverage"] == nil {
 					t.Fatalf("missing schema/status/coverage: %v", report)
 				}
 				var extra any
@@ -215,7 +215,7 @@ func TestCLI_VersionMetadataSanitized(t *testing.T) {
 	if code := Run(context.Background(), []string{"version"}, &out, &diag); code != 0 || diag.Len() != 0 {
 		t.Fatalf("code=%d stderr=%q", code, diag.String())
 	}
-	if got := out.String(); got != "hammerhead version v spoof (commit: c)\n" {
+	if got := out.String(); got != "Hammerhead Core version v spoof (source base: c)\nCore only: six native checks. GIT-002: NOT EVALUATED (Git health and metadata collection are omitted).\n" {
 		t.Fatalf("unsafe version metadata: %q", got)
 	}
 }
